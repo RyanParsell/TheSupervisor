@@ -1,0 +1,39 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+/artifacts/
+*.user
+*.suo
+
+# NOTE: /artifacts/ is anchored to the repo root on purpose — it is the .NET build
+# output directory. An unanchored `artifacts/` would also swallow docs/artifacts/,
+# which is the archived-plan index and must be tracked.
+
+# NOTE: Supervisor/wwwroot is COMMITTED build output (the .NET build only copies it).
+# Do not ignore it — a stale bundle ships silently otherwise.
+
+# Node
+node_modules/
+npm-debug.log*
+.vite/
+
+# Skill deploy targets — reproducible output of `supervisor skills install`,
+# never edited by hand. Source of truth is skills/.
+.claude/skills/
+.github/skills/
+.agents/skills/
+
+# Playwright
+/e2e/test-results/
+/e2e/playwright-report/
+/e2e/.cache/
+
+# Editors / OS
+.vs/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local settings that should not travel
+.claude/settings.local.json
