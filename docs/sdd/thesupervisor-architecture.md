@@ -60,7 +60,7 @@ Three consequences follow, and they shape everything below:
 ## Project Structure
 
 ```
-TheSupervisor.sln
+TheSupervisor.slnx
 ├─ Supervisor/                  # CLI + global tool entry point (binary: supervisor)
 │  ├─ Program.cs                #   Spectre.Console.Cli command tree
 │  ├─ Commands/                 #   verb implementations, incl. AgentGuideCommand.cs

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Supervisor</RootNamespace>
+    <AssemblyName>supervisor</AssemblyName>
+
+    <!-- Global tool. The binary is `supervisor` on PATH once installed. -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>supervisor</ToolCommandName>
+    <PackageId>TheSupervisor.Cli</PackageId>
+
+    <!--
+      The mcp/hook verbs run on a per-session fast path with a CI-enforced startup budget (NFR-2).
+      Keep startup lean: no invariant-culture data, no satellite assemblies, no banner work.
+    -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Spectre.Console.Cli" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Supervisor.Core\Supervisor.Core.csproj" />
+  </ItemGroup>
+
+</Project>

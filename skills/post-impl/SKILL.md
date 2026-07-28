@@ -150,8 +150,8 @@ Confirm doc-adjacent code edits didn't break anything.
 
 | Touched this run | Run |
 |---|---|
-| `AgentGuideCommand.cs` (4a), `Program.cs` (4b), or any other `.cs` | `dotnet build TheSupervisor.sln --verbosity quiet --nologo` then `dotnet test TheSupervisor.sln --no-build --verbosity quiet` |
-| Markdown / docs only — no `.cs` edited | **Skip the .NET suite** — with ONE exception: this skill always edits `docs/artifacts/README.md` and the plan file, so **always run the tags meta-test** if it exists (`dotnet test TheSupervisor.sln --no-build --filter ArtifactIndexTags`). Say the skip out loud in the Phase 9 table rather than omitting the row. |
+| `AgentGuideCommand.cs` (4a), `Program.cs` (4b), or any other `.cs` | `dotnet build TheSupervisor.slnx --verbosity quiet --nologo` then `dotnet test TheSupervisor.slnx --no-build --verbosity quiet` |
+| Markdown / docs only — no `.cs` edited | **Skip the .NET suite** — with ONE exception: this skill always edits `docs/artifacts/README.md` and the plan file, so **always run the tags meta-test** if it exists (`dotnet test TheSupervisor.slnx --no-build --filter ArtifactIndexTags`). Say the skip out loud in the Phase 9 table rather than omitting the row. |
 | Any `WebUI/**` source | `npm --prefix WebUI run build && npm --prefix WebUI test` |
 
 **Order matters: this phase comes AFTER Phases 1–5 on purpose.** Those phases are the ones that edit `.cs`, so building earlier would just force a second build.
@@ -241,7 +241,7 @@ Every skill in the trio ends with the **same table**, so three runs read alike. 
 | README / CLAUDE.md / Program.cs | — | Updated (or: No change needed) |
 | Plan moved | docs/artifacts/<date>[-bug]-<slug>.md | friction log carried through verbatim; tags reconciled → `area:…` `arch:…` |
 | Stale-plan sweep | docs/plans/ | N shipped plans found (or: clean) |
-| Build + tests | TheSupervisor.sln | 412 ×2 TFMs, 0 failures |
+| Build + tests | TheSupervisor.slnx | 412 ×2 TFMs, 0 failures |
 | Unrun verification | <suite/spec> | could not execute — <why>; first runs: <where> (row REQUIRED whenever one exists) |
 | Committed | <feat\|fix>: + docs: | <impl-hash> + <docs-hash> (or: docs only — impl already committed) |
 | Pushed | origin/main | <hash> (or: ⚠ HOTBUG — direct to trunk, no PR) |

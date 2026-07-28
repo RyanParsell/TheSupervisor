@@ -93,7 +93,7 @@ sub-agent per unit in parallel worktrees). WU-D depends on WU-C. WU-F depends on
 
 ### WU-A — Repository scaffold and CI
 
-`TheSupervisor.sln` targeting `net10.0`, with `Supervisor` (CLI, `PackAsTool`, binary `supervisor`),
+`TheSupervisor.slnx` targeting `net10.0`, with `Supervisor` (CLI, `PackAsTool`, binary `supervisor`),
 `Supervisor.Core` (domain — Agent, Roster, Status, ActivitySummary), `Supervisor.Web` (Hub host), and
 `Supervisor.Tests` (xUnit). `Directory.Build.props` and `Directory.Packages.props` for central package
 management. Spectre.Console.Cli command tree with `--json` on every leaf. GitHub Actions workflow:
@@ -285,7 +285,7 @@ plan. Both go through `FakeClock`. **No test sleeps** — a test that waits is a
 
 ## Verification
 
-1. `dotnet build TheSupervisor.sln` green; `dotnet test TheSupervisor.sln` green, 0 failures.
+1. `dotnet build TheSupervisor.slnx` green; `dotnet test TheSupervisor.slnx` green, 0 failures.
 2. CI green on push — build, full suite, and the startup-budget guard.
 3. The budget guard passes with headroom, and its measured value is reported in the summary.
 4. `e2e/seeded-fleet.spec.ts` green from a clean checkout.

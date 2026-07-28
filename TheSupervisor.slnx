@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Supervisor.Core/Supervisor.Core.csproj" />
+  <Project Path="Supervisor.Tests/Supervisor.Tests.csproj" />
+  <Project Path="Supervisor.Web/Supervisor.Web.csproj" />
+  <Project Path="Supervisor/Supervisor.csproj" />
+</Solution>

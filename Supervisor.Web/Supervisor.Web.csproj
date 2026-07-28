@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Supervisor.Web</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Becomes the Hub host in WU-B (Kestrel, rendezvous, WebSocket). Kept as a plain library
+    until then so WU-A's build carries no unused ASP.NET dependency.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Supervisor.Core\Supervisor.Core.csproj" />
+  </ItemGroup>
+
+</Project>
