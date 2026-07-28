@@ -5,9 +5,12 @@
   </PropertyGroup>
 
   <!--
-    Becomes the Hub host in WU-B (Kestrel, rendezvous, WebSocket). Kept as a plain library
-    until then so WU-A's build carries no unused ASP.NET dependency.
+    FrameworkReference rather than the Web SDK: this is a library the CLI hosts in-process,
+    not a standalone web app with its own entry point.
   -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Supervisor.Core\Supervisor.Core.csproj" />
