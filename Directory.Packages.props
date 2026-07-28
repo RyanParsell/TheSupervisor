@@ -11,6 +11,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- MCP. Deliberately .Core, not the umbrella ModelContextProtocol package: the umbrella pulls
+         in Microsoft.Extensions.Hosting and its DI/logging graph, and this assembly is loaded on the
+         per-session fast path where that cost is paid on every Claude session start (NFR-2). -->
+    <PackageVersion Include="ModelContextProtocol.Core" Version="1.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Test -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />
