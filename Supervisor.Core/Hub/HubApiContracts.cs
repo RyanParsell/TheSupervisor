@@ -1,8 +1,12 @@
 using System.Text.Json.Serialization;
 
-namespace Supervisor.Web;
+namespace Supervisor.Core.Hub;
 
 /// <summary>What <c>GET /hub/status</c> returns.</summary>
+/// <remarks>
+/// Lives in Core, not Web: both sides of the wire need it, and the CLI's probe and client cannot
+/// reference the host assembly.
+/// </remarks>
 public sealed record HubStatus
 {
     public required string HostId { get; init; }
@@ -23,4 +27,4 @@ public sealed record HubStopResponse
 [JsonSerializable(typeof(HubStatus))]
 [JsonSerializable(typeof(HubStopResponse))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-internal sealed partial class HubApiJsonContext : JsonSerializerContext;
+public sealed partial class HubApiJsonContext : JsonSerializerContext;

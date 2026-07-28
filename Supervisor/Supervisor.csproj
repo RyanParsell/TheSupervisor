@@ -25,6 +25,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Supervisor.Core\Supervisor.Core.csproj" />
+    <ProjectReference Include="..\Supervisor.Web\Supervisor.Web.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The type registrar is internal plumbing, but CommandTreeTests must prove every command is
+         actually constructible through it — a command needing an unregistered dependency otherwise
+         fails at runtime on the user's machine rather than in CI. -->
+    <InternalsVisibleTo Include="Supervisor.Tests" />
   </ItemGroup>
 
 </Project>

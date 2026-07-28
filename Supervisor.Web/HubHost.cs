@@ -29,6 +29,10 @@ public sealed class HubHost : IAsyncDisposable
     public HubLifecycle Lifecycle { get; }
     public string Endpoint => Rendezvous.Endpoint;
 
+    /// <summary>Completes when the host shuts down, whether by signal or by <c>POST /hub/stop</c>.</summary>
+    public Task WaitForShutdownAsync(CancellationToken cancellationToken = default) =>
+        _app.WaitForShutdownAsync(cancellationToken);
+
     public static async Task<HubHost> StartAsync(
         HubRendezvousStore store,
         HubLifecycle? lifecycle = null,
