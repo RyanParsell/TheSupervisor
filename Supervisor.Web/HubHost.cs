@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Supervisor.Core;
+using Supervisor.Core.Enrollment;
 using Supervisor.Core.Hub;
 
 namespace Supervisor.Web;
@@ -27,6 +28,7 @@ public sealed class HubHost : IAsyncDisposable
 
     public HubRendezvous Rendezvous { get; }
     public HubLifecycle Lifecycle { get; }
+    public required AgentRegistry Agents { get; init; }
     public string Endpoint => Rendezvous.Endpoint;
 
     /// <summary>Completes when the host shuts down, whether by signal or by <c>POST /hub/stop</c>.</summary>
@@ -36,6 +38,7 @@ public sealed class HubHost : IAsyncDisposable
     public static async Task<HubHost> StartAsync(
         HubRendezvousStore store,
         HubLifecycle? lifecycle = null,
+        AgentRegistry? registry = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
@@ -49,6 +52,8 @@ public sealed class HubHost : IAsyncDisposable
         // Hub-to-someone-else's-Agent.
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddSingleton(lifecycle);
+        var agents = registry ?? new AgentRegistry();
+        builder.Services.AddSingleton(agents);
 
         var startedAt = DateTimeOffset.UtcNow;
         var hostId = HubIdentity.NewHostId();
@@ -99,6 +104,48 @@ public sealed class HubHost : IAsyncDisposable
             },
             HubApiJsonContext.Default.HubStatus));
 
+        app.MapPost("/hub/agents", (AgentRegistration registration, AgentRegistry agents, HubLifecycle live) =>
+        {
+            // D28: the enrollment contract is versioned independently of the build, and a mismatch
+            // is refused rather than guessed at. The shim treats this as fail-open — it exits 0 and
+            // the Agent simply shows as unenrolled — so the refusal must be unambiguous here.
+            if (registration.ProtocolVersion != SupervisorProtocol.EnrollmentVersion)
+            {
+                // A typed record, not an anonymous type: CreateSlimBuilder serializes through the
+                // source-generated context, and an anonymous type is not in it — it would throw at
+                // runtime on the one path that only fires during a version skew.
+                return Results.Json(
+                    new EnrollmentError
+                    {
+                        Error = "protocol-mismatch",
+                        ExpectedProtocolVersion = SupervisorProtocol.EnrollmentVersion,
+                    },
+                    EnrollmentJsonContext.Default.EnrollmentError,
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
+            var enrolled = agents.Register(registration);
+            live.ClientAttached(enrolled.AgentId);
+
+            return Results.Json(
+                new AgentRegistrationResponse
+                {
+                    AgentId = enrolled.AgentId,
+                    ProtocolVersion = SupervisorProtocol.EnrollmentVersion,
+                },
+                EnrollmentJsonContext.Default.AgentRegistrationResponse);
+        });
+
+        app.MapDelete("/hub/agents/{machineId}/{sessionId}", (
+            string machineId, string sessionId, AgentRegistry agents, HubLifecycle live) =>
+        {
+            var agentId = $"{machineId}/{sessionId}";
+            var removed = agents.Deregister(agentId);
+            live.ClientDetached(agentId);
+
+            return removed ? Results.NoContent() : Results.NotFound();
+        });
+
         app.MapPost("/hub/stop", async (HubLifecycle live, bool? force) =>
         {
             var outcome = live.RequestStop(force ?? false);
@@ -140,7 +187,7 @@ public sealed class HubHost : IAsyncDisposable
 
         store.Write(rendezvous);
 
-        return new HubHost(app, store, rendezvous, lifecycle);
+        return new HubHost(app, store, rendezvous, lifecycle) { Agents = agents };
     }
 
     public async ValueTask DisposeAsync()
