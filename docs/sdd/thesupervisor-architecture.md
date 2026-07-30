@@ -62,12 +62,20 @@ Three consequences follow, and they shape everything below:
 ```
 TheSupervisor.slnx
 ├─ Supervisor/                  # CLI + global tool entry point (binary: supervisor)
-│  ├─ Program.cs                #   Spectre.Console.Cli command tree
-│  ├─ Commands/                 #   verb implementations, incl. AgentGuideCommand.cs
+│  ├─ Program.cs                #   fast-path dispatch, then the Spectre command tree
+│  ├─ FastPath.cs               #   mcp/hook dispatched from raw argv, before CommandApp exists
+│  ├─ McpShim.cs                #   the per-session shim: stdio MCP + background enrollment
+│  ├─ SimpleTypeRegistrar.cs    #   dependency-free Spectre DI, to keep the fast path lean
+│  ├─ SupervisorCli.cs          #   the one command-tree definition, shared with tests
+│  ├─ Commands/                 #   verb implementations (Hub/, GlobalSettings.cs)
 │  └─ wwwroot/                  #   committed WebUI bundle (copied by build, NOT generated)
-├─ Supervisor.Core/             # domain model — Agent, Roster, Command, Workstream
+├─ Supervisor.Core/             # domain model and shared contracts
+│  ├─ Hub/                      #   rendezvous, locator, starter, probe, client, lifecycle, spawn
+│  ├─ Enrollment/               #   registration, registry, enroller, shim logic, session discovery
+│  ├─ RepositoryResolver.cs     #   git-remote identity with SSH alias resolution
+│  └─ MachineIdentity.cs        #   stable per-Machine id
 ├─ Supervisor.Web/              # Hub host — Kestrel, WebSocket, MCP endpoint, terminal
-│  └─ Terminal/ConPty/          #   hand-vendored kernel32 interop + Job Object
+│  └─ Terminal/ConPty/          #   hand-vendored kernel32 interop + Job Object (WU-3)
 ├─ Supervisor.Tests/            # xUnit; Fakes/ holds the seams (see Testing Strategy)
 ├─ WebUI/                       # React + TypeScript + Vite source (built into wwwroot)
 ├─ e2e/                         # Playwright hermetic scenarios
@@ -113,8 +121,36 @@ spot into a diagnosable state. *(D6)*
 ### The Fast Path
 
 The `mcp` and `hook` verbs run on a deliberately austere startup path: no update check, no telemetry
-init, no config scan, no banner. A CI test asserts the budget (~200 ms). **If that test goes red, the
-fix is to move the dependency off the fast path — not to raise the budget.** *(D10)*
+init, no config scan, no banner. A CI test asserts the budget. **If that test goes red, the fix is to
+move the dependency off the fast path — not to raise the budget.** *(D10)*
+
+**Measured, and the reason the design is what it is.** Constructing Spectre's command tree costs
+~160 ms; the whole budget is ~200 ms. No amount of trimming *within* the fast path could have
+worked, so `mcp` and `hook` are dispatched from **raw argv in `Program.cs`, before the `CommandApp`
+exists**. Release figures: fast path 110 ms, 143 ms once the MCP SDK is loaded, against 261 ms for
+the full path. `ModelContextProtocol.Core` rather than the umbrella package is what buys the
+headroom — the umbrella drags in `Microsoft.Extensions.Hosting` and its DI/logging graph.
+
+The guard asserts a **ratio** (fast path < 75% of the full path) rather than an absolute
+millisecond count, and takes the **minimum** of several samples rather than the median. Absolute
+thresholds depend on the machine; a floor measurement is what "startup cost when nothing interferes"
+actually means, and contention can only add time. The ratio is enforced in Release only — Debug's
+unoptimized JIT of the MCP SDK's serialization generics swamps the structural saving (275 ms vs
+282 ms, ratio 0.97, against Release's 0.50).
+
+### Enrollment, as built
+
+The shim (`McpShim`) serves MCP over stdio and enrols **on a background task, never in front of the
+handshake**. This is load-bearing rather than incidental: Claude Code spawns MCP servers roughly
+3.5 s *before* it writes `~/.claude/sessions/<pid>.json`, so resolving session context once at
+startup succeeded 1 time in 5 — intermittently and silently, leaving the Roster randomly short of
+rows. Waiting in front of the handshake would instead have slowed every session's startup, which
+NFR-1 forbids. So the wait is bounded, backgrounded, and retried.
+
+The shim finds its Agent by **parent pid** — it is a child process, so its own pid identifies
+nothing, and reporting it would make every Agent unmatchable against `claude agents --json`, which
+is exactly what the unenrolled backstop diffs against. The lookup is a direct NT query rather than
+WMI, which would cost more than everything else the shim does.
 
 ### The Roster
 
@@ -193,6 +229,12 @@ mid-session and the effort genuinely moves with it.
 **Repository means the normalized git remote URL** — identity, not location — so the same repo on two
 Machines is one Workstream and a branch's history is continuous across the fleet. Falls back to
 Machine + absolute path when there is no remote; those Workstreams simply never span Machines.
+
+**SSH host aliases are resolved through `~/.ssh/config`.** A developer with two GitHub accounts
+commonly reaches one through an alias (`git@github-personal:owner/repo.git`), and taken literally
+that yields a different identity than the same repository cloned over `github.com` elsewhere —
+splitting one effort into two Workstreams across Machines. Only consulted when the host has no dot,
+which every real hostname has, so the common case keeps ssh config off the fast path.
 
 Storage is a **bounded session index**: session id, Machine, time range, final Activity Summary, and
 a *pointer* to each transcript — never a copy. Older entries prune. A Workstream whose branch and

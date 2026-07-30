@@ -70,6 +70,10 @@ Installing TheSupervisor is a one-time, machine-level act. Every Claude Code ses
 afterwards joins the Roster with no per-session action by the user or the model, via a user-scope
 stdio MCP server plus lifecycle hooks. The skill is not the enrollment path. *(ADR-0002, D2–D4)*
 
+**Partially delivered.** The shim enrols real sessions end to end, on a background task
+(ADR-0007). Hooks and `supervisor install` are outstanding, so registering the MCP server is still
+manual — the "one-time, machine-level act" is not yet a single command.
+
 ### FR-2 — The Roster
 The UI presents one Roster covering the whole Fleet — every Agent on this Machine and on every
 paired Peer — showing Repository, name, Status, Activity Summary, tier, and Subagent count. It is a
@@ -145,6 +149,11 @@ The `mcp` and `hook` verbs take an austere startup path — no update check, tel
 scan, or banner — held under roughly 200 ms by a CI-enforced budget test. Measured baseline: a
 minimal .NET console starts in ~128 ms; a heavyweight CLI preamble costs ~3,500 ms, which multiplied
 across every session and every prompt is a tax the developer feels all day. *(D10)*
+
+**Delivered.** Spectre's command tree alone costs ~160 ms, so these verbs are dispatched from raw
+argv before the command tree is built. Release: 110 ms bare, 143 ms with the MCP SDK, against 261 ms
+for the full path. The guard asserts a ratio and a floor rather than an absolute median — see
+`thesupervisor-architecture.md` § The Fast Path.
 
 ### NFR-3 — Security
 Loopback is not authorization. Capability tokens are scoped per client and verified per call; the

@@ -2,7 +2,7 @@
 name: post-impl
 description: Publish completed TheSupervisor work after implementation. Reconciles the plan's test plan against what was actually tested, updates the required SDD docs, help, and agent guide, archives the plan under docs/artifacts, creates separate implementation and documentation commits, then pushes or opens the correct PR for the current branch. Feature and bug branches use stacked PR behavior, while a declared hotbug may publish directly from main. Use after the impl skill or when asked to finish, document, push, release, or open a PR for completed TheSupervisor work.
 user_invocable: true
-version: 1.0.0
+version: 1.1.0
 # ⚠️ IMPORTANT: When editing this file, increment the patch version above (e.g., 1.0.0 → 1.0.1).
 # Derived from the WExpert skill trio (C:\Code\MS\CLI\skills), retargeted to TheSupervisor and
 # hardened around test-first development.
@@ -17,7 +17,7 @@ version: 1.0.0
 - **On `main`/`master` (trunk):** push to `main` (or open a PR with `--pr`), release-tag eligible.
 - **On any feature branch (stacked):** push the current branch, open/refresh the **stacked** PR (base = the prior phase's branch). Never touches `main`; never release-tags.
 
-**Universal in both modes:** **reconcile the test plan**; **move the plan from `docs/plans/` to `docs/artifacts/`**; separate `feat:`/`fix:` (code) and `docs:` (docs) commits — never bury implementation under a `docs:` subject; rebuild committed web assets (`wwwroot`) before staging; sync skill mirrors; and "verify, don't manufacture" doc edits.
+**Universal in both modes:** **reconcile the test plan**; **archive the plan to `docs/artifacts/` once every work unit has shipped** (a mid-plan checkpoint leaves it in `docs/plans/` — see Phase 3); separate `feat:`/`fix:` (code) and `docs:` (docs) commits — never bury implementation under a `docs:` subject; rebuild committed web assets (`wwwroot`) before staging; sync skill mirrors; and "verify, don't manufacture" doc edits.
 
 ### Output Style
 - Brief phase indicators ("Phase 1: SDD docs…"). Do NOT narrate each file edit. End with a summary table.
@@ -96,7 +96,27 @@ Read each file first to find the insertion point.
 
 ---
 
-### Phase 3 — Plan handling (always move)
+### Phase 3 — Plan handling (move only when the plan is finished)
+
+**First, decide whether the plan is done.** A plan is finished when every work unit it declares has
+shipped. If any remain, this is a **mid-plan checkpoint**: do everything else in this skill, and
+**leave the plan in `docs/plans/`**.
+
+> **Why this matters more than it looks.** The impl skill resolves which plan to build by matching
+> `**Branch:**` against the checked-out branch, and it only looks in `docs/plans/`. Archiving a plan
+> whose remaining work units live on the *same* branch leaves the next `/impl` run with nothing to
+> find — it will report "no plans found" on a branch that is halfway through one. Multi-*branch*
+> phases are the case the move was written for; multi-*unit* plans on one branch are not.
+
+When the plan is **not** finished:
+
+- Skip the move and the index row entirely. Say so explicitly in the Phase 10 table
+  (`Plan | left in docs/plans/ — N of M work units remain`), naming which units are outstanding.
+- Everything else still runs: the test-plan reconciliation, the SDD updates, the story, the build,
+  the push, and the PR. A checkpoint is fully documented; it simply is not archived.
+- The story you add covers **what shipped so far**, and says so.
+
+When the plan **is** finished, move it:
 
 **MOVE** `docs/plans/YYYY-MM-DD-<topic>.md` → `docs/artifacts/<impl-date>-<topic>.md` (re-date the prefix to the implementation date; add one if absent), then **insert a top row** in `docs/artifacts/README.md` (table is newest-first): `| <impl-date> | [<slug>](<file>) | <tags> | 2–3 sentence outcome summary. |`. Use filesystem move if untracked, `git mv` if tracked.
 
@@ -110,7 +130,7 @@ Read each file first to find the insertion point.
 
 **Carry the friction log through verbatim.** If the plan ends in a `<!-- FRICTION:START -->` … `<!-- FRICTION:END -->` block, it moves with the plan **unedited** — do not strip, summarize, or "tidy" it. That block is much of the point of archiving the plan; its `Open` entries are the backlog for improving these skills. Each entry ends in a `**Status:**` line (`Open` / `Resolved <date> — …` / `Declined <date> — …`) — friction is marked, never deleted.
 
-This happens in **both** trunk and feature modes. On a stacked feature branch this archives the shared plan while later phases may still be open — that is intended; later phases reference the archived plan in `docs/artifacts/`.
+This happens in **both** trunk and feature modes. A plan split across *branches* is archived when its own branch is done, and later phase-branches reference it in `docs/artifacts/`. A plan whose remaining work units sit on **this** branch is not finished and is not moved.
 
 ---
 

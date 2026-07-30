@@ -357,4 +357,65 @@ load-bearing rather than an edge case.
 **Recommendation:** None — the skill handled it correctly.
 
 **Status:** Declined 2026-07-27 — working as designed; recorded for context only.
+
+### F-4 — post-impl · Phase 3 (plan handling)
+
+**What happened:** Phase 3 said "always move" the plan to `docs/artifacts/`. This run was a mid-plan
+checkpoint — WU-A/B/C shipped, WU-D through WU-G outstanding on the same branch — and archiving
+would have been actively harmful: the impl skill resolves work by matching `**Branch:**` against the
+checked-out branch and only looks in `docs/plans/`, so the next `/impl` on this branch would have
+reported "no plans found" on a branch halfway through one. The "always" was inherited from WExpert,
+where each *phase* is its own branch and the archived plan is referenced by later branches; a plan
+whose remaining units live on the same branch is a different case the wording did not admit.
+
+**Recommendation:** Applied — Phase 3 is now "move only when the plan is finished", with an explicit
+mid-plan checkpoint path that runs every other phase and leaves the plan in place, plus a Phase 10
+row naming the outstanding units.
+
+**Status:** Resolved 2026-07-30 — `skills/post-impl/SKILL.md` Phase 3 rewritten (v1.1.0), summary
+line updated, redeployed to `.claude/skills/`.
+
+### F-5 — impl · Phase 2c (`--no-build` masking a failed build)
+
+**What happened:** `dotnet test --no-build` reported `Passed! 51` and `Passed! 33` over builds that
+had **failed**, twice in one session — once on a missing project reference, once on a missing using.
+The skill warns about this, and the warning was not enough, because the failure mode is that the
+green line is the last thing printed and reads as success. Both times the real error was several
+lines above, already scrolled past.
+
+**Recommendation:** Have Phase 2c prescribe the *shape* of the command, not just the hazard: run
+build and test as separate steps and gate the second on the first (`dotnet build … && dotnet test
+--no-build …`), so a failed build cannot be followed by a green test summary at all.
+
+**Status:** Open
+
+### F-6 — impl · Phase 6 (commit not gated on green)
+
+**What happened:** Commit `443fe1c` landed while `HookVerbStaysUnderBudget` was failing. The Phase 6
+instructions describe staging and committing but never say *gate the commit on a green suite*, and
+chaining build/test/commit into one shell invocation makes ignoring the result the default. It was
+noticed only when reading back the output afterwards. The failure turned out to be a flake, which is
+luck rather than process — nothing about the workflow would have caught a real one.
+
+**Recommendation:** Make Phase 6 state the precondition explicitly ("do not commit unless the suite
+just passed in this run") and show the gated form, the same way Phase 2c should.
+
+**Status:** Open
+
+### F-7 — pre-impl · Phase 7 (test plan named no test that runs the binary)
+
+**What happened:** Two bugs made **every invocation of the CLI fail** while all 31 unit tests stayed
+green: the type registrar instantiated eagerly (Spectre's own `ExplainCommand` has no parameterless
+constructor, so configuration threw before any verb ran), and the resolver returned null for
+`IEnumerable<T>` (Spectre asks for `IEnumerable<IHelpProvider>` mid-dispatch and treats null as
+fatal). Neither is reachable through `CommandAppTester`. They were found by running the binary by
+hand, not by anything the test plan named. The plan's test-level table has Unit / Component /
+Contract / Hermetic e2e / Developer smoke, and *nothing* between the last two that simply executes
+the shipped artifact once.
+
+**Recommendation:** Add a standing rule to Phase 7: any plan that produces or changes an executable
+names at least one test that **spawns the built binary and asserts on its exit code and output**.
+Cheap, and it is the only level that catches composition-root failures.
+
+**Status:** Open
 <!-- FRICTION:END -->
