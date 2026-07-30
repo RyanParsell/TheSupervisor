@@ -34,30 +34,9 @@ internal static class FastPath
 
         return args[0] switch
         {
-            "mcp" => McpAsync(probeOnly),
+            "mcp" => McpShim.RunAsync(probeOnly),
             "hook" => Task.FromResult(0),
             _ => Task.FromResult(1),
         };
-    }
-
-    private static Task<int> McpAsync(bool probeOnly)
-    {
-        // Touching the MCP types here is deliberate: the probe must pay the assembly-load cost the
-        // real shim pays, or the budget measures nothing.
-        var options = new ModelContextProtocol.Server.McpServerOptions
-        {
-            ServerInfo = new ModelContextProtocol.Protocol.Implementation
-            {
-                Name = "thesupervisor",
-                Version = Supervisor.Core.SupervisorVersion.Current,
-            },
-        };
-
-        if (probeOnly)
-        {
-            return Task.FromResult(options.ServerInfo is null ? 1 : 0);
-        }
-
-        return Task.FromResult(0);
     }
 }
