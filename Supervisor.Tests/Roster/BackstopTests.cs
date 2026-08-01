@@ -138,6 +138,25 @@ public sealed class BackstopTests
     }
 
     [Fact]
+    public async Task AnUnenrolledSessionThatIsBlockedSaysSo()
+    {
+        // An unenrolled Agent cannot be steered, but the developer can still walk to that window.
+        // "Not enrolled" alone would hide the one fact worth acting on.
+        var backstop = Build(new FakeAgentsCliProbe(
+            Sighting("s-blocked", 4242, status: "waiting") with { WaitingFor = "permission to use Bash" }));
+
+        var row = Assert.Single(await backstop.DetectAsync([], CancellationToken.None));
+
+        Assert.Contains("permission to use Bash", row.ActivitySummary, StringComparison.Ordinal);
+        Assert.Contains("Not enrolled", row.ActivitySummary, StringComparison.Ordinal);
+
+        // The band is unchanged (D23): unenrolled still sorts last, because nothing here can be
+        // acted on *through* TheSupervisor. Whether that is right for a blocked session is a
+        // product question, not one to settle silently in a renderer.
+        Assert.Equal(AgentStatus.Unenrolled, row.Status);
+    }
+
+    [Fact]
     public async Task UnenrolledRowsSortBelowEverythingActionable()
     {
         // The two halves have to compose: a backstop row is only correct if it also lands last once

@@ -60,7 +60,11 @@ public sealed class RosterAssemblerTests : IDisposable
     };
 
     private static ClaudeAgentSighting Sighting(
-        string sessionId, int pid, string status = "idle", string name = "thesupervisor-3b") => new()
+        string sessionId,
+        int pid,
+        string status = "idle",
+        string name = "thesupervisor-3b",
+        string? waitingFor = null) => new()
     {
         SessionId = sessionId,
         ProcessId = pid,
@@ -68,6 +72,7 @@ public sealed class RosterAssemblerTests : IDisposable
         WorkingDirectory = @"C:\Code\Personal\TheSupervisor",
         Kind = "interactive",
         ReportedStatus = status,
+        WaitingFor = waitingFor,
         StartedAt = Start,
     };
 
@@ -225,6 +230,97 @@ public sealed class RosterAssemblerTests : IDisposable
         Assert.True(
             second < whole / 2,
             $"second refresh read {second} bytes of a {whole}-byte transcript — that is a re-read, not a tail");
+    }
+
+    [Fact]
+    public async Task ABlockedAgentSaysWhatItIsBlockedOn()
+    {
+        // The whole product exists to answer "where am I needed next". For the top row, the useful
+        // sentence is not what the Agent was doing but what it needs from the developer — that is
+        // the difference between "go look at this" and "go do this specific thing".
+        _registry.Register(Registration("s-1", 1001));
+        Transcript("s-1", UserText("add the tests"), AssistantToolUse("Bash", "t1"));
+
+        var rows = await Build(new FakeAgentsCliProbe(
+                Sighting("s-1", 1001, "waiting", waitingFor: "permission to use Bash")))
+            .BuildAsync(CancellationToken.None);
+
+        var row = Assert.Single(rows);
+        Assert.Equal(AgentStatus.Waiting, row.Status);
+        Assert.Contains("permission to use Bash", row.ActivitySummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheBlockedReasonOutranksTheTranscriptLine()
+    {
+        // The transcript's last line for a blocked Agent is whatever it was doing when it stopped —
+        // "Running Bash" — which reads as progress. It is the one case where the tail is actively
+        // misleading, so the reason wins.
+        _registry.Register(Registration("s-1", 1001));
+        Transcript("s-1", UserText("go"), AssistantToolUse("Bash", "t1"));
+
+        var rows = await Build(new FakeAgentsCliProbe(
+                Sighting("s-1", 1001, "waiting", waitingFor: "input needed")))
+            .BuildAsync(CancellationToken.None);
+
+        Assert.DoesNotContain("Running Bash", rows[0].ActivitySummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ABlockedAgentWithNoStatedReasonStillReadsAsBlocked()
+    {
+        // `waitingFor` is only emitted for some dialogs. A blocked row with no reason must still say
+        // it is blocked rather than falling back to a tool name that implies it is working.
+        _registry.Register(Registration("s-1", 1001));
+        Transcript("s-1", UserText("go"), AssistantToolUse("Bash", "t1"));
+
+        var rows = await Build(new FakeAgentsCliProbe(Sighting("s-1", 1001, "waiting")))
+            .BuildAsync(CancellationToken.None);
+
+        Assert.Contains("aiting", rows[0].ActivitySummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task BecomingBlockedCountsAsActivityChanging()
+    {
+        // An Agent blocked for twenty minutes should read as blocked for twenty minutes. If the
+        // transition did not move the stamp, the age would keep counting from whatever it last did,
+        // and a long block would look like a long silence.
+        //
+        // One assembler throughout, with a probe whose answer changes: a second assembler stamps
+        // everything as newly-changed regardless, so it would pass without proving anything.
+        _registry.Register(Registration("s-1", 1001));
+        Transcript("s-1", UserText("go"), AssistantToolUse("Bash", "t1"));
+
+        var probe = new FakeAgentsCliProbe(Sighting("s-1", 1001, "busy"));
+        var assembler = Build(probe);
+
+        var first = await assembler.BuildAsync(CancellationToken.None);
+        Assert.Equal(AgentStatus.Busy, first[0].Status);
+
+        _clock.Advance(TimeSpan.FromMinutes(4));
+        probe.Sightings = [Sighting("s-1", 1001, "waiting", waitingFor: "permission to use Bash")];
+
+        var second = await assembler.BuildAsync(CancellationToken.None);
+
+        Assert.Equal(AgentStatus.Waiting, second[0].Status);
+        Assert.NotEqual(first[0].ActivityAt, second[0].ActivityAt);
+        Assert.Equal(_clock.GetUtcNow(), second[0].ActivityAt);
+    }
+
+    [Fact]
+    public async Task AShellSessionReadsAsBusyNotIdle()
+    {
+        // The session file's own vocabulary is busy|shell|idle|waiting; `claude agents --json`
+        // collapses shell into busy before we see it. Mapping it anyway costs nothing and means
+        // reading the session file directly later cannot silently report a working Agent as idle.
+        _registry.Register(Registration("s-1", 1001));
+        Transcript("s-1", UserText("go"));
+
+        var rows = await Build(new FakeAgentsCliProbe(Sighting("s-1", 1001, "shell")))
+            .BuildAsync(CancellationToken.None);
+
+        Assert.Equal(AgentStatus.Busy, rows[0].Status);
     }
 
     [Fact]

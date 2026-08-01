@@ -179,7 +179,6 @@ public sealed class RosterAssembler
         foreach (var agent in enrolled)
         {
             var registration = agent.Registration;
-            var watch = Refresh(agent);
 
             var local = string.Equals(registration.MachineId, _machineId, StringComparison.Ordinal);
             var seen = local
@@ -188,6 +187,7 @@ public sealed class RosterAssembler
                     ? sighting
                     : null;
 
+            var watch = Refresh(agent, seen);
             rows.Add(new RosterEntry
             {
                 AgentId = agent.AgentId,
@@ -232,7 +232,10 @@ public sealed class RosterAssembler
 
         return seen.ReportedStatus.ToLowerInvariant() switch
         {
-            "busy" or "running" or "working" => AgentStatus.Busy,
+            // `shell` is the session file's own vocabulary (busy|shell|idle|waiting); the CLI
+            // collapses it into busy before we see it. Mapping it anyway costs nothing and means
+            // reading the session file directly later cannot report a working Agent as idle.
+            "busy" or "shell" or "running" or "working" => AgentStatus.Busy,
             "waiting" or "waiting_for_input" or "blocked" => AgentStatus.Waiting,
             "error" or "errored" or "failed" => AgentStatus.Errored,
             "stopped" or "exited" => AgentStatus.Stopped,
@@ -240,8 +243,8 @@ public sealed class RosterAssembler
         };
     }
 
-    /// <summary>Polls one Agent's transcript, keeping the tail and its last-changed stamp.</summary>
-    private Watch Refresh(EnrolledAgent agent)
+    /// <summary>Polls one Agent's transcript and decides the line its row should show.</summary>
+    private Watch Refresh(EnrolledAgent agent, ClaudeAgentSighting? seen)
     {
         var registration = agent.Registration;
 
@@ -251,11 +254,32 @@ public sealed class RosterAssembler
             _watches[agent.AgentId] = watch;
         }
 
+        // Polled even while blocked, so the offset stays current and the summary is right the
+        // moment the Agent is unblocked.
+        PollTranscript(registration, watch);
+
+        // A blocked Agent's last transcript line is whatever it was doing when it stopped —
+        // "Running Bash" — which reads as progress. It is the one case where the tail is actively
+        // misleading, so the reason it is blocked wins.
+        var display = seen?.BlockedDescription() ?? watch.TailSummary;
+
+        if (display is { Length: > 0 }
+            && !string.Equals(display, watch.Summary, StringComparison.Ordinal))
+        {
+            watch.Summary = display;
+            watch.ChangedAt = _time.GetUtcNow();
+        }
+
+        return watch;
+    }
+
+    private void PollTranscript(Enrollment.AgentRegistration registration, Watch watch)
+    {
         var path = _locator.Locate(registration.WorkingDirectory, registration.SessionId);
 
         if (path is null)
         {
-            return watch;
+            return;
         }
 
         if (watch.Tail is null || !string.Equals(watch.Path, path, StringComparison.OrdinalIgnoreCase))
@@ -266,21 +290,15 @@ public sealed class RosterAssembler
 
         if (watch.Tail.Poll() is not { } digest)
         {
-            return watch;
+            return;
         }
 
         watch.Subagents = digest.OutstandingSubagents;
 
-        // The stamp tracks the summary changing, not the Roster refreshing. Stamping every poll
-        // would make every row permanently fresh and the staleness marker permanently silent.
-        if (digest.Summary is { Length: > 0 } summary
-            && !string.Equals(summary, watch.Summary, StringComparison.Ordinal))
+        if (digest.Summary is { Length: > 0 } summary)
         {
-            watch.Summary = summary;
-            watch.ChangedAt = _time.GetUtcNow();
+            watch.TailSummary = summary;
         }
-
-        return watch;
     }
 
     /// <summary>Drops tails for Agents that are no longer enrolled, so watches do not accumulate.</summary>
@@ -303,8 +321,20 @@ public sealed class RosterAssembler
     {
         public string? Path { get; set; }
         public TranscriptTail? Tail { get; set; }
+
+        /// <summary>The latest line the transcript yielded, regardless of what the row shows.</summary>
+        public string? TailSummary { get; set; }
+
+        /// <summary>What the row shows — the blocked reason when blocked, the tail otherwise.</summary>
         public string? Summary { get; set; }
+
+        /// <summary>
+        /// When <see cref="Summary"/> last changed. Tracks the summary changing, not the Roster
+        /// refreshing: stamping every poll would leave every row permanently fresh and the
+        /// staleness marker permanently silent.
+        /// </summary>
         public DateTimeOffset? ChangedAt { get; set; }
+
         public int Subagents { get; set; }
     }
 }

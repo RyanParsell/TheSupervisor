@@ -82,6 +82,34 @@ public sealed class AgentsCliProbeTests
     }
 
     [Fact]
+    public void CarriesTheReasonAWaitingSessionIsBlockedOn()
+    {
+        // Claude Code emits `waitingFor` only alongside status "waiting". It is the most useful
+        // sentence the Roster can show — it names the thing the developer has to go and do — and
+        // dropping it would leave the most urgent row saying only "waiting".
+        var sighting = Assert.Single(AgentsCliContract.Parse(
+            """
+            [{"pid":7,"cwd":"C:\\tmp","kind":"interactive","startedAt":0,"sessionId":"s-1",
+              "name":"n","status":"waiting","waitingFor":"permission to use Bash"}]
+            """));
+
+        Assert.Equal("waiting", sighting.ReportedStatus);
+        Assert.Equal("permission to use Bash", sighting.WaitingFor);
+    }
+
+    [Fact]
+    public void ABusySessionHasNoWaitingReason()
+    {
+        var sighting = Assert.Single(AgentsCliContract.Parse(
+            """
+            [{"pid":7,"cwd":"C:\\tmp","kind":"interactive","startedAt":0,"sessionId":"s-1",
+              "name":"n","status":"busy"}]
+            """));
+
+        Assert.Null(sighting.WaitingFor);
+    }
+
+    [Fact]
     public void EmptyFleetIsNotAnError()
     {
         Assert.Empty(AgentsCliContract.Parse("[]"));

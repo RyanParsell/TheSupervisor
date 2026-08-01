@@ -12,16 +12,22 @@ namespace Supervisor.Tests.Fakes;
 /// </remarks>
 public sealed class FakeAgentsCliProbe : IAgentsCliProbe
 {
-    private readonly IReadOnlyList<ClaudeAgentSighting> _sightings;
     private readonly Exception? _failure;
 
-    public FakeAgentsCliProbe(params ClaudeAgentSighting[] sightings) => _sightings = sightings;
+    public FakeAgentsCliProbe(params ClaudeAgentSighting[] sightings) => Sightings = sightings;
 
     private FakeAgentsCliProbe(Exception failure)
     {
-        _sightings = [];
+        Sightings = [];
         _failure = failure;
     }
+
+    /// <summary>
+    /// What the next call reports. Settable so a test can move a session between states across
+    /// refreshes of the <em>same</em> assembler — which is the only way to assert a transition,
+    /// since a fresh assembler stamps everything as newly changed regardless.
+    /// </summary>
+    public IReadOnlyList<ClaudeAgentSighting> Sightings { get; set; }
 
     /// <summary>A probe that cannot run — Claude absent, not on PATH, or a contract change.</summary>
     public static FakeAgentsCliProbe Failing(string message = "claude: command not found") =>
@@ -34,6 +40,6 @@ public sealed class FakeAgentsCliProbe : IAgentsCliProbe
         Calls++;
         return _failure is not null
             ? Task.FromException<IReadOnlyList<ClaudeAgentSighting>>(_failure)
-            : Task.FromResult(_sightings);
+            : Task.FromResult(Sightings);
     }
 }

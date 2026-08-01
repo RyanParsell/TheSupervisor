@@ -29,7 +29,32 @@ public sealed record ClaudeAgentSighting
     /// <summary>What Claude Code says about it. Recorded, not trusted, and never acted on.</summary>
     public required string ReportedStatus { get; init; }
 
+    /// <summary>
+    /// Why this session is blocked, when it is — <c>"permission to use Bash"</c>, <c>"input
+    /// needed"</c>, <c>"sandbox request"</c>, <c>"dialog open"</c>, <c>"worker request"</c>, or a
+    /// dialog's own label.
+    /// </summary>
+    /// <remarks>
+    /// Claude Code emits this only alongside <c>waiting</c>. It is the single most useful sentence
+    /// the Roster can carry: it names what the developer has to go and do, rather than leaving the
+    /// most urgent row saying only that something is wrong.
+    /// </remarks>
+    public string? WaitingFor { get; init; }
+
     public required DateTimeOffset StartedAt { get; init; }
+
+    /// <summary>
+    /// One line describing what this session is blocked on, or null if it is not blocked.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the Roster assembler and the backstop so an enrolled and an unenrolled blocked
+    /// session are described the same way — the developer should not have to learn two phrasings
+    /// for the same situation.
+    /// </remarks>
+    public string? BlockedDescription() =>
+        string.Equals(ReportedStatus, "waiting", StringComparison.OrdinalIgnoreCase)
+            ? string.IsNullOrWhiteSpace(WaitingFor) ? "Waiting for you" : "Waiting: " + WaitingFor.Trim()
+            : null;
 }
 
 /// <summary>Lists the Claude sessions running on this Machine.</summary>
@@ -81,6 +106,7 @@ public static class AgentsCliContract
                 DisplayName = Text(element, "name") ?? sessionId,
                 Kind = Text(element, "kind") ?? "interactive",
                 ReportedStatus = Text(element, "status") ?? "unknown",
+                WaitingFor = Text(element, "waitingFor"),
 
                 // Milliseconds. Reading it as seconds would put every Agent decades in the past and
                 // silently wreck every age indicator on the pane.
@@ -260,7 +286,13 @@ public sealed class UnenrolledBackstop
                 MachineName = _machineName,
                 Status = AgentStatus.Unenrolled,
                 Tier = AgentTier.Unenrolled,
-                ActivitySummary = NoActivity,
+
+                // An unenrolled Agent cannot be steered from here, but the developer can still walk
+                // to that window — so if it is blocked, say what on. "Not enrolled" alone would hide
+                // the only fact worth acting on.
+                ActivitySummary = sighting.BlockedDescription() is { } blocked
+                    ? $"{NoActivity} · {blocked}"
+                    : NoActivity,
 
                 // Start time is the only timestamp a sighting carries. It is truthful — how long the
                 // session has been up — and it keeps the age column populated for a row that has no
