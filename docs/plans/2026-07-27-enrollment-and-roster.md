@@ -309,6 +309,67 @@ plan. Both go through `FakeClock`. **No test sleeps** — a test that waits is a
 - **`supervisor install` mutates a hand-maintained file.** Backup before write, marked block, and an
   uninstall test asserting byte-identical restore.
 
+## Progress
+
+**Updated 2026-08-01.** Maintained as the plan is worked, so a fresh context window can resume
+without reading the commit log. Branch `feature/enrollment-and-roster`; PR
+[#1](https://github.com/RyanParsell/TheSupervisor/pull/1) open against `main`, CI green.
+
+| Work unit | Status | Landed in |
+|---|---|---|
+| WU-A — scaffold and CI | ✅ complete | `3b46f0e` |
+| WU-B — Hub host, rendezvous, start-or-attach | ✅ complete | `f1c854e`, `2430472`, `4ecd3ef`, `97079f1` |
+| WU-C — MCP shim and the austere fast path | ✅ complete | `8f70b93`, `37416a5`, `443fe1c`, `2312549`, `eff10db` |
+| WU-D — hooks, install, uninstall, doctor | ⬜ not started | — |
+| WU-E — Roster, transcript tail, backstop | 🟡 **in progress** | `20f6a9d` |
+| WU-F — control service, `supervisor list`, MCP tool | ⬜ not started | — |
+| WU-G — seeded-fleet demo and hermetic e2e | ⬜ not started | — |
+
+**79 tests, 0 failures, green in Debug and Release.**
+
+### WU-E slice detail
+
+| Slice | Status |
+|---|---|
+| `RosterOrdering` — attention bands, recency tie-break, stable sort | ✅ 5 tests |
+| `TranscriptTail` — activity derivation, Subagent count, offset safety | ✅ 8 tests |
+| Activity Summary staleness + age indicator | ⬜ **next** |
+| Unenrolled backstop — diff against `claude agents --json` | ⬜ after that |
+| Assemble the Roster from the registry + tail + backstop | ⬜ last in WU-E |
+
+### Design intent for the remaining WU-E slices
+
+**Staleness.** `RosterEntry.ActivityAt` already exists and drives tie-breaking. What is missing is
+the *age* the UI shows and the point at which a summary is called stale. Drive it through
+`TimeProvider` (already injected into `AgentRegistry`) rather than `DateTimeOffset.UtcNow`, and build
+`FakeClock` — the plan names it as a seam and nothing has needed it yet. **No test may sleep**; a
+test that waits gets skipped within a month. Staleness is presentation, not truth: a stale summary is
+still shown, just marked, because blanking it would lose the only information there is.
+
+**Unenrolled backstop.** Poll `claude agents --json` (a supported contract — `--all`, `--cwd`, and
+explicitly TTY-free), diff by pid *and* sessionId against the registry, and emit `AgentStatus.Unenrolled`
+rows for local sessions with no enrollment. Build `FakeAgentsCliProbe` so this is testable without
+spawning `claude`. The double-listing trap is the one to guard: an enrolled Agent appears in **both**
+sources and must produce one row, so the match key has to be the same identity the shim registers
+(`machineId/sessionId`), not the pid alone.
+
+### Loose ends — noticed, not yet acted on
+
+- **Large-transcript memory.** `TranscriptTail`'s first poll reads the whole file into a string;
+  measured 5.3 MB on a live session. Fine for one Agent, questionable for a dozen. Revisit when the
+  Roster assembles many tails, not before.
+- **CI runs twice per push.** The workflow triggers on both `push: feature/**` and
+  `pull_request: main`, so the same SHA builds twice on a PR branch. Wasteful, not broken.
+- **`TreatWarningsAsErrors` vs deliberately-incomplete TDD.** A not-yet-assigned field is exactly
+  what "not implemented" looks like, and CS0649 blocks the build — turning a behavioural red into a
+  build failure. Workaround: initialise explicitly to get a real red. Worth a friction entry if it
+  recurs.
+- **Four of five named developer smokes remain unperformed** (§ Test plan). Blocked on: fleet
+  ordering + real four-session check → WU-F; unenrolled visibility → WU-E; uninstall → WU-D. The
+  fifth (real enrollment) was performed, 5 of 5 sessions clean.
+- **`gh` active account reverts** to `ryanp_microsoft`, which cannot touch personal repos. Use
+  `$env:GH_TOKEN = (gh auth token --user RyanParsell)` per invocation rather than `gh auth switch`.
+
 <!-- FRICTION:START -->
 ## Skill Friction Log
 
