@@ -322,10 +322,10 @@ without reading the commit log. Branch `feature/enrollment-and-roster`; PR
 | WU-C — MCP shim and the austere fast path | ✅ complete | `8f70b93`, `37416a5`, `443fe1c`, `2312549`, `eff10db` |
 | WU-D — hooks, install, uninstall, doctor | ⬜ **next** | — |
 | WU-E — Roster, transcript tail, backstop | ✅ complete | `20f6a9d`, `cda1fa0` |
-| WU-F — control service, `supervisor list`, MCP tool | ✅ complete | `abf95c6` |
+| WU-F — control service, `supervisor list`, MCP tool | ✅ complete | `abf95c6`, `e710e05` |
 | WU-G — seeded-fleet demo and hermetic e2e | ⬜ not started | — |
 
-**160 tests, 0 failures, green in Debug and Release.** Startup budget at commit `abf95c6`:
+**168 tests, 0 failures, green in Debug and Release.** Startup budget at commit `abf95c6`:
 `mcp` ratio **0.52** against a 0.75 budget, `hook` 0.44. The test emits these numbers, so the plan's
 verification item 3 is answerable without hand-timing anything. Absolute milliseconds move with
 machine load (141 ms idle, 228 ms under a full build) — the ratio is the stable figure, which is why
@@ -350,6 +350,7 @@ the guard is written as one.
 | `supervisor list` — table, `--json`, `--cwd` | ✅ 11 tests |
 | Fleet MCP tool + verb/tool parity pin | ✅ 4 tests |
 | MCP stdio contract against the built binary | ✅ 1 test |
+| Blocked-Agent detection — `waitingFor` as the summary | ✅ 8 tests |
 
 ### What WU-E shipped, and the decisions inside it
 
@@ -419,13 +420,22 @@ width when stdout is not a terminal. `hub status --json` had the same defect and
 
 ### Loose ends — noticed, not yet acted on
 
-- **Nothing reports `waiting`.** `claude agents --json` was observed emitting only `busy` and `idle`
-  across five real sessions. The Roster's first attention band is Waiting — the entire reason the
-  pane exists — so unless another signal supplies it, the most important band never populates.
-  `RosterAssembler.Status` maps `waiting`/`waiting_for_input`/`blocked` already, in case the contract
-  carries them; if it does not, detecting a blocked Agent needs its own source (transcript shape, or
-  WU-D's hook). **This is now the single most valuable thing left in the plan** — `supervisor list`
-  ships, and it cannot yet show the state it exists to surface.
+- **`waiting` is reported after all — the earlier claim here was wrong.** This entry previously read
+  "Nothing reports `waiting`", inferred from one `claude agents --json` sample of five sessions,
+  none of which happened to be blocked at that moment. Absence in a sample is not absence from the
+  contract. Reading the emitter in `claude.exe` settled it: the status vocabulary is
+  `["busy","shell","idle","waiting"]`, collapsed to `idle|waiting|busy` on the way into the JSON,
+  and a `waiting` session carries a **`waitingFor`** reason — `"permission to use Bash"`,
+  `"input needed"`, `"sandbox request"`, `"dialog open"`, `"worker request"`, or a dialog's own
+  label. The real gap was much smaller than the one this entry described: we parsed the status and
+  dropped the reason. Fixed in `e710e05`. **Still unobserved live** — no session was blocked while
+  it was written, so the path rests on the emitter contract plus tests, not an end-to-end run.
+  Closing that takes thirty seconds: leave any session on a permission prompt, run `supervisor list`.
+- **Should a blocked *unenrolled* session still sort last?** D23 puts Unenrolled in the bottom band
+  because nothing there can be acted on *through* TheSupervisor — but the developer can walk to that
+  window, and "where am I needed" is the pane's only job. Left alone deliberately: the reason now
+  appears in the row's summary (`Not enrolled · Waiting: …`) without touching the ordering, because
+  changing a locked decision is not a thing to do quietly inside a renderer.
 - **The real probe is slow enough to time out.** `HubClient` allows 10 s for a request; the Hub
   spawning `claude agents --json` inside it exceeded that under full-suite load, which is what made
   the first version of `EnrollmentReachesTheFleetTheHubServes` flaky. The test is hermetic now, but
@@ -439,7 +449,8 @@ width when stdout is not a terminal. `hub status --json` had the same defect and
 - **Three of five named developer smokes are now performed.** Real enrollment (5/5 sessions clean),
   unenrolled visibility (5 real sessions listed, correctly labelled, `--cwd` filtering correctly),
   and `--json` surviving redirection. Still outstanding: the four-session **blocked-Agent ordering**
-  check — blocked on the `waiting` gap above — and **uninstall**, blocked on WU-D.
+  check — which now needs only a session sitting at a prompt, not new machinery — and **uninstall**,
+  blocked on WU-D.
 - **`gh` active account reverts** to `ryanp_microsoft`, which cannot touch personal repos. Use
   `$env:GH_TOKEN = (gh auth token --user RyanParsell)` per invocation rather than `gh auth switch`.
 
