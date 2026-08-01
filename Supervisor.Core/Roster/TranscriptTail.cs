@@ -45,6 +45,17 @@ public sealed class TranscriptTail
     public long Offset => _offset;
 
     /// <summary>
+    /// Total bytes actually pulled off disk by this instance, across every poll.
+    /// </summary>
+    /// <remarks>
+    /// Diagnostic, and the only way to tell incremental tailing from a full re-read each poll — the
+    /// offset alone cannot, since a freshly-constructed tail ends up at the same place. A live
+    /// session's transcript was measured at 5.3 MB, so the difference matters once the Roster holds
+    /// a dozen of them.
+    /// </remarks>
+    public long BytesRead { get; private set; }
+
+    /// <summary>
     /// Reads whatever has been appended since the last call and returns the current digest,
     /// or null if the transcript does not exist yet.
     /// </summary>
@@ -178,6 +189,8 @@ public sealed class TranscriptTail
 
             using var reader = new StreamReader(stream);
             var buffer = reader.ReadToEnd();
+
+            BytesRead += System.Text.Encoding.UTF8.GetByteCount(buffer);
 
             var lastNewline = buffer.LastIndexOf('\n');
             if (lastNewline < 0)

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Xunit.Abstractions;
 
 namespace Supervisor.Tests;
 
@@ -20,6 +21,10 @@ public sealed class StartupBudgetTests
 {
     private const int Samples = 7;
     private const int WarmupRuns = 4;
+
+    private readonly ITestOutputHelper _output;
+
+    public StartupBudgetTests(ITestOutputHelper output) => _output = output;
 
     /// <summary>
     /// The fast path must cost meaningfully less than the full command-tree path.
@@ -45,13 +50,20 @@ public sealed class StartupBudgetTests
     [Fact]
     public void HookVerbStaysUnderBudget() => AssertFastPathBudget("hook");
 
-    private static void AssertFastPathBudget(string verb)
+    private void AssertFastPathBudget(string verb)
     {
         var exe = SupervisorBinary();
         Assert.True(File.Exists(exe), $"Supervisor binary not found at {exe} — build the solution first.");
 
         var fast = FloorMs(exe, [verb, "--startup-probe"]);
         var full = FloorMs(exe, ["--version"]);
+
+        // Emitted so the number itself is reportable, not just pass/fail. The plan's verification
+        // asks for the measured value and the headroom, and a green tick alone does not say whether
+        // the budget is comfortable or one dependency away from red.
+        _output.WriteLine(
+            $"{verb}: {fast:N0} ms vs {full:N0} ms full path "
+            + $"(ratio {fast / full:F2}, budget {MaxFractionOfFullPath:F2}, ceiling {AbsoluteCeilingMs} ms)");
 
 #if !DEBUG
         // The ratio is only meaningful in an optimized build.
