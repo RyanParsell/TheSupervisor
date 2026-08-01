@@ -506,4 +506,25 @@ names at least one test that **spawns the built binary and asserts on its exit c
 Cheap, and it is the only level that catches composition-root failures.
 
 **Status:** Open
-<!-- FRICTION:END -->
+
+### F-8 — impl · Phase 2 (getting a red "for the right reason" in a static language)
+
+**What happened:** Phase 2 says to watch the test fail and check it "fails for the right reason,"
+warning that "a test that errors on a missing type has not yet proven anything about behavior." In
+C# that is *every* first red — the type does not exist, so the build fails and no test runs at all.
+The skill names the hazard but prescribes no way out of it, leaving each run to improvise. Three
+times this run the working move was the same: write the test, then write a stub that **compiles but
+returns a deliberately wrong value** (`Present` returning zero age and `false`; `DetectAsync`
+returning an empty list), take a genuine behavioural red, then implement. Each time the stub earned
+its keep by exposing which assertions were **vacuous** — `IsFreshRightUpToTheThreshold` and
+`AFailedProbeNeverMarksTheFleetStopped` passed against a do-nothing stub, which is exactly the
+signal that they needed a paired assertion on the other side of the boundary. A compile error would
+have shown none of that.
+
+**Recommendation:** Add the stub step to Phase 2's loop as the static-language form of "red": write
+the test → add the smallest signature that compiles, returning a wrong-but-typed value → run → the
+failures are behavioural, and **any test that passes here is vacuous and must be strengthened before
+proceeding**. That last clause is the part worth having: it turns an inconvenience of the language
+into a free audit of the test set.
+
+**Status:** Open
