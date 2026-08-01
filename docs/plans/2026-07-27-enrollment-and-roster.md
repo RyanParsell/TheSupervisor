@@ -321,11 +321,14 @@ without reading the commit log. Branch `feature/enrollment-and-roster`; PR
 | WU-B — Hub host, rendezvous, start-or-attach | ✅ complete | `f1c854e`, `2430472`, `4ecd3ef`, `97079f1` |
 | WU-C — MCP shim and the austere fast path | ✅ complete | `8f70b93`, `37416a5`, `443fe1c`, `2312549`, `eff10db` |
 | WU-D — hooks, install, uninstall, doctor | ⬜ not started | — |
-| WU-E — Roster, transcript tail, backstop | 🟡 **in progress** | `20f6a9d` |
-| WU-F — control service, `supervisor list`, MCP tool | ⬜ not started | — |
+| WU-E — Roster, transcript tail, backstop | ✅ complete | `20f6a9d`, `cda1fa0` |
+| WU-F — control service, `supervisor list`, MCP tool | ⬜ **next** | — |
 | WU-G — seeded-fleet demo and hermetic e2e | ⬜ not started | — |
 
-**79 tests, 0 failures, green in Debug and Release.**
+**120 tests, 0 failures, green in Debug and Release.** Startup budget measured at commit `cda1fa0`:
+`mcp` 141 ms vs 269 ms for the full command-tree path (ratio 0.52), `hook` 122 ms vs 264 ms (0.46),
+against a 0.75 budget. The test now emits these numbers, so the plan's verification item 3 is
+answerable without hand-timing anything.
 
 ### WU-E slice detail
 
@@ -333,40 +336,64 @@ without reading the commit log. Branch `feature/enrollment-and-roster`; PR
 |---|---|
 | `RosterOrdering` — attention bands, recency tie-break, stable sort | ✅ 5 tests |
 | `TranscriptTail` — activity derivation, Subagent count, offset safety | ✅ 8 tests |
-| Activity Summary staleness + age indicator | ⬜ **next** |
-| Unenrolled backstop — diff against `claude agents --json` | ⬜ after that |
-| Assemble the Roster from the registry + tail + backstop | ⬜ last in WU-E |
+| Activity Summary staleness + age indicator | ✅ 14 tests |
+| Unenrolled backstop — diff against `claude agents --json` | ✅ 11 tests |
+| Assemble the Roster from the registry + tail + backstop | ✅ 16 tests |
 
-### Design intent for the remaining WU-E slices
+### What WU-E shipped, and the decisions inside it
 
-**Staleness.** `RosterEntry.ActivityAt` already exists and drives tie-breaking. What is missing is
-the *age* the UI shows and the point at which a summary is called stale. Drive it through
-`TimeProvider` (already injected into `AgentRegistry`) rather than `DateTimeOffset.UtcNow`, and build
-`FakeClock` — the plan names it as a seam and nothing has needed it yet. **No test may sleep**; a
-test that waits gets skipped within a month. Staleness is presentation, not truth: a stale summary is
-still shown, just marked, because blanking it would lose the only information there is.
+**Staleness** (`ActivitySummary`). A presenter, not a mutation: `Present(text, activityAt)` returns
+the line, its age, a coarse label, and whether it has crossed the threshold. Default 10 minutes,
+chosen because the transcript advances on every tool call and the longest routine gap is a slow
+build — tighter than that and a healthy Agent running the suite flags as stuck, which trains the
+developer to ignore the marker. Clamps future timestamps to zero, because two Machines' clocks do
+not agree and a negative age would sort above everything. `FakeClock` built; nothing sleeps.
 
-**Unenrolled backstop.** Poll `claude agents --json` (a supported contract — `--all`, `--cwd`, and
-explicitly TTY-free), diff by pid *and* sessionId against the registry, and emit `AgentStatus.Unenrolled`
-rows for local sessions with no enrollment. Build `FakeAgentsCliProbe` so this is testable without
-spawning `claude`. The double-listing trap is the one to guard: an enrolled Agent appears in **both**
-sources and must produce one row, so the match key has to be the same identity the shim registers
-(`machineId/sessionId`), not the pid alone.
+**Unenrolled backstop** (`UnenrolledBackstop`, `AgentsCliContract`, `AgentsCliProbe`). The real
+contract was captured from a live Machine and checked in as a fixture — `pid`, `cwd`, `kind`,
+`startedAt` (epoch **milliseconds**), `sessionId`, `name`, `status`. Matching is on
+`machineId/sessionId` **or** local pid: identity alone misses a session that cleared and took a new
+id while staying enrolled, and pid alone collides across Machines. A failing probe returns no rows
+rather than throwing.
+
+**Assembly** (`RosterAssembler`, `ClaudeTranscriptLocator`). One probe spawn per refresh, shared
+between Status and the backstop. Tails are kept across refreshes so a poll reads only what was
+appended — pinned by a test that fails on a full re-read. `ActivityAt` advances only when the summary
+*changes*, never on refresh; stamping every poll would leave every row permanently fresh and the
+staleness marker permanently silent. Transcript location is
+`~/.claude/projects/<slug>/<sessionId>.jsonl` with the slug verified against the real directory
+listing (`C:\Code\Personal\TheSupervisor` → `C--Code-Personal-TheSupervisor`); because that algorithm
+belongs to Claude Code and is undocumented, a search by session id is the fallback and the
+correctness mechanism.
+
+**`Stopped` requires positive evidence.** Only a probe that ran and did not list an Agent may mark
+it stopped. A probe that could not run leaves Status alone — declaring the whole fleet dead because
+`claude` is missing from PATH would look exactly like a real outage.
 
 ### Loose ends — noticed, not yet acted on
 
-- **Large-transcript memory.** `TranscriptTail`'s first poll reads the whole file into a string;
-  measured 5.3 MB on a live session. Fine for one Agent, questionable for a dozen. Revisit when the
-  Roster assembles many tails, not before.
+- **Nothing reports `waiting`.** `claude agents --json` was observed emitting only `busy` and `idle`.
+  The Roster's first attention band is Waiting — the entire reason the pane exists — so unless
+  another signal supplies it, the most important band never populates. `RosterAssembler.Status` maps
+  `waiting`/`waiting_for_input`/`blocked` already, in case the contract carries them; if it does not,
+  detecting a blocked Agent needs its own source (transcript shape, or the hook in WU-D). **Resolve
+  before WU-F is called done** — a `supervisor list` that can never show a blocked Agent is not the
+  product.
+- **`AgentsCliProbe`'s spawn is unexercised end to end.** Parsing is pinned by the captured fixture,
+  and `claude agents --json` was run by hand, but nothing has yet started the process from .NET —
+  specifically, PATH resolution of the extensionless `claude` and the npm-installed `.cmd` shape on
+  other machines. First real exercise is WU-F's `supervisor list`.
+- **Large-transcript memory, partly addressed.** Tails are now reused across refreshes, so steady
+  state reads only appended bytes. The *first* poll still reads the whole file — 5.3 MB on a live
+  session. Revisit if a dozen tails start together.
 - **CI runs twice per push.** The workflow triggers on both `push: feature/**` and
   `pull_request: main`, so the same SHA builds twice on a PR branch. Wasteful, not broken.
 - **`TreatWarningsAsErrors` vs deliberately-incomplete TDD.** A not-yet-assigned field is exactly
   what "not implemented" looks like, and CS0649 blocks the build — turning a behavioural red into a
-  build failure. Workaround: initialise explicitly to get a real red. Worth a friction entry if it
-  recurs.
+  build failure. Workaround: initialise explicitly to get a real red.
 - **Four of five named developer smokes remain unperformed** (§ Test plan). Blocked on: fleet
-  ordering + real four-session check → WU-F; unenrolled visibility → WU-E; uninstall → WU-D. The
-  fifth (real enrollment) was performed, 5 of 5 sessions clean.
+  ordering, real four-session check, and unenrolled visibility → all need WU-F's `supervisor list`;
+  uninstall → WU-D. The fifth (real enrollment) was performed, 5 of 5 sessions clean.
 - **`gh` active account reverts** to `ryanp_microsoft`, which cannot touch personal repos. Use
   `$env:GH_TOKEN = (gh auth token --user RyanParsell)` per invocation rather than `gh auth switch`.
 
