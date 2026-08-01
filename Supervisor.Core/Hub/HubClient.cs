@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Supervisor.Core.Fleet;
 
 namespace Supervisor.Core.Hub;
 
@@ -49,6 +50,32 @@ public sealed class HubClient : IDisposable
         return new HubStopResult(
             Refused: response.StatusCode == HttpStatusCode.Conflict,
             AttachedClients: body?.AttachedClients ?? 0);
+    }
+
+    /// <summary>
+    /// Reads the Fleet as this Hub sees it.
+    /// </summary>
+    /// <remarks>
+    /// Returns null when the Hub refuses or answers unusably, so a caller can distinguish "no Hub
+    /// answer" from "a Hub that answered, with nothing running" — an empty fleet is a real result.
+    /// </remarks>
+    public async Task<FleetView?> GetFleetAsync(
+        FleetQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var path = string.IsNullOrWhiteSpace(query.WorkingDirectory)
+            ? "/hub/fleet"
+            : "/hub/fleet?cwd=" + Uri.EscapeDataString(query.WorkingDirectory);
+
+        using var request = Authorized(HttpMethod.Get, path);
+        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        return response.IsSuccessStatusCode
+            ? await response.Content
+                .ReadFromJsonAsync(FleetJsonContext.Default.FleetView, cancellationToken)
+                .ConfigureAwait(false)
+            : null;
     }
 
     private HttpRequestMessage Authorized(HttpMethod method, string path)

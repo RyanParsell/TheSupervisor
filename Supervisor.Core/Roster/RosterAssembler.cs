@@ -71,10 +71,21 @@ public sealed class ClaudeTranscriptLocator : ITranscriptLocator
 
         try
         {
-            // The session id is the part of the path we actually know, so it is what we search on.
-            return Directory
-                .EnumerateFiles(_projectsRoot, file, SearchOption.AllDirectories)
-                .FirstOrDefault();
+            // One level deep, not a recursive sweep. The layout is exactly
+            // <projects>/<slug>/<sessionId>.jsonl, so this is a handful of existence checks rather
+            // than an enumeration of every transcript on the machine — which matters because an
+            // Agent that has not written a transcript yet misses on *every* refresh, and a recursive
+            // scan on each of those would be a background cost paid forever.
+            foreach (var directory in Directory.EnumerateDirectories(_projectsRoot))
+            {
+                var candidate = Path.Combine(directory, file);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -130,6 +141,9 @@ public sealed class RosterAssembler
         _machineId = machineId;
         _time = time ?? TimeProvider.System;
     }
+
+    /// <summary>The Machine this assembler answers for.</summary>
+    public string MachineId => _machineId;
 
     /// <summary>Total transcript bytes read since this assembler was created. Diagnostic.</summary>
     public long TranscriptBytesRead => _watches.Values.Sum(w => w.Tail?.BytesRead ?? 0);

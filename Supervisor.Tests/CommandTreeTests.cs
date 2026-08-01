@@ -68,9 +68,10 @@ public sealed class CommandTreeTests
         // The registrar satisfies a command's widest constructor from what is registered. A command
         // taking a dependency nobody registered constructs with a null and fails at runtime, on the
         // user's machine, rather than here.
-        var registrar = new SimpleTypeRegistrar();
-        registrar.RegisterInstance(typeof(Spectre.Console.IAnsiConsole), Spectre.Console.AnsiConsole.Console);
-        var resolver = registrar.Build();
+        //
+        // Built from SupervisorCli.CreateRegistrar so this checks the real composition root. A
+        // hand-rolled copy here would pass while production dispatched a command holding a null.
+        var resolver = SupervisorCli.CreateRegistrar().Build();
 
         var commands = typeof(SupervisorCli).Assembly
             .GetTypes()

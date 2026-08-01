@@ -179,7 +179,7 @@ public sealed class AgentsCliProbe : IAgentsCliProbe
 /// </remarks>
 public sealed class UnenrolledBackstop
 {
-    private const string NoActivity = "Not enrolled — activity unavailable";
+    private const string NoActivity = "Not enrolled";
 
     private readonly IAgentsCliProbe _probe;
     private readonly string _machineId;

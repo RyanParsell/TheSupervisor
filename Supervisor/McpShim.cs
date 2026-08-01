@@ -1,5 +1,7 @@
+using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Supervisor.Commands;
 using Supervisor.Core;
 using Supervisor.Core.Enrollment;
 using Supervisor.Core.Hub;
@@ -34,13 +36,19 @@ internal static class McpShim
 
     public static async Task<int> RunAsync(bool probeOnly, CancellationToken cancellationToken = default)
     {
-        var failures = new FileFailureRecorder();
+        // Built before the probe returns, deliberately. Tool descriptors are constructed by
+        // reflecting over handler signatures, and that cost is paid on every session start — so it
+        // belongs inside what the startup-budget guard measures. Returning earlier would let a
+        // future tool blow the budget with the guard still green.
+        var options = CreateServerOptions();
 
         if (probeOnly)
         {
-            // Startup-budget probe: load the assembly graph, do nothing else.
+            // Startup-budget probe: load the assembly graph and build the server surface, nothing else.
             return 0;
         }
+
+        var failures = new FileFailureRecorder();
 
         using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
@@ -51,7 +59,7 @@ internal static class McpShim
 
         try
         {
-            await ServeAsync(shutdown.Token).ConfigureAwait(false);
+            await ServeAsync(options, shutdown.Token).ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
@@ -134,24 +142,125 @@ internal static class McpShim
         }
     }
 
+    /// <summary>The one tool this shim serves, resolved lazily so nothing is built at session start.</summary>
+    private static readonly FleetTool _fleet = new(new HubFleetSource());
+
+    /// <summary>
+    /// The tool descriptor, hand-written rather than reflected.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>McpServerTool.Create(delegate)</c> generates this schema by reflecting over the handler's
+    /// signature — which is convenient, and measured at ~150 ms on the per-session fast path, taking
+    /// the startup-budget ratio from 0.52 to 0.74 against a 0.75 limit. D10 says the fix for that is
+    /// to move the dependency off the fast path, never to raise the budget.
+    /// </para>
+    /// <para>
+    /// So the schema is written out here, and only parsed when a client actually asks for the tool
+    /// list. One optional string parameter does not need a reflection pipeline to describe.
+    /// </para>
+    /// </remarks>
+    private const string ToolSchema = """
+        {
+          "type": "object",
+          "properties": {
+            "cwd": {
+              "type": "string",
+              "description": "Optional. Only agents working under this directory."
+            }
+          },
+          "required": []
+        }
+        """;
+
+    private const string ToolName = "list_fleet";
+
+    private const string ToolDescription =
+        "List every Claude agent running on this machine, most urgent first (waiting, then errored "
+        + "or stopped, then busy, idle, and finally sessions that never enrolled). Returns JSON: "
+        + "each agent's name, repository, working directory, status, one-line activity summary, how "
+        + "long since that summary changed, and its subagent count. Optionally filter to agents "
+        + "working under a directory.";
+
+    /// <summary>
+    /// Describes the MCP surface this shim serves: identity plus the Fleet tool (WU-F).
+    /// </summary>
+    /// <remarks>
+    /// Handlers rather than a tool collection, so session start pays for two delegates instead of a
+    /// schema-generation pass. Both resolve the Hub lazily, per call — probing loopback at startup
+    /// for a tool the Agent may never invoke would be the same mistake in a different place.
+    /// </remarks>
+    private static McpServerOptions CreateServerOptions() => new()
+    {
+        ServerInfo = new Implementation
+        {
+            Name = "thesupervisor",
+            Version = SupervisorVersion.Current,
+        },
+        Capabilities = new ServerCapabilities { Tools = new ToolsCapability() },
+        Handlers = new McpServerHandlers
+        {
+            ListToolsHandler = (_, _) => ValueTask.FromResult(new ListToolsResult
+            {
+                Tools =
+                [
+                    new Tool
+                    {
+                        Name = ToolName,
+                        Title = "List the fleet",
+                        Description = ToolDescription,
+                        InputSchema = JsonDocument.Parse(ToolSchema).RootElement.Clone(),
+                        Annotations = new ToolAnnotations
+                        {
+                            Title = "List the fleet",
+                            ReadOnlyHint = true,
+                            OpenWorldHint = false,
+                        },
+                    },
+                ],
+            }),
+
+            CallToolHandler = async (request, cancellationToken) =>
+            {
+                if (request.Params?.Name != ToolName)
+                {
+                    return Failure($"Unknown tool '{request.Params?.Name}'.");
+                }
+
+                try
+                {
+                    var cwd = request.Params.Arguments is { } arguments
+                        && arguments.TryGetValue("cwd", out var value)
+                        && value.ValueKind == JsonValueKind.String
+                            ? value.GetString()
+                            : null;
+
+                    var json = await _fleet.ListAsync(cwd, cancellationToken).ConfigureAwait(false);
+
+                    return new CallToolResult { Content = [new TextContentBlock { Text = json }] };
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    // An unhandled exception here would surface inside the calling Agent's context
+                    // as a tool crash, which reads as something the Agent did wrong and invites a
+                    // retry loop. Say what happened instead.
+                    return Failure($"Could not read the fleet: {e.Message}");
+                }
+            },
+        },
+    };
+
+    private static CallToolResult Failure(string message) => new()
+    {
+        IsError = true,
+        Content = [new TextContentBlock { Text = message }],
+    };
+
     /// <summary>
     /// Serves MCP over stdio for the life of the session.
     /// </summary>
-    /// <remarks>
-    /// No tools yet — the Fleet-listing tool is WU-F. An MCP server advertising nothing is valid,
-    /// and enrollment is the job this verb exists to do.
-    /// </remarks>
-    private static async Task ServeAsync(CancellationToken cancellationToken)
+    private static async Task ServeAsync(McpServerOptions options, CancellationToken cancellationToken)
     {
-        var options = new McpServerOptions
-        {
-            ServerInfo = new Implementation
-            {
-                Name = "thesupervisor",
-                Version = SupervisorVersion.Current,
-            },
-        };
-
         await using var transport = new StdioServerTransport("thesupervisor");
         await using var server = McpServer.Create(transport, options);
 

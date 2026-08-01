@@ -1,4 +1,3 @@
-using Spectre.Console;
 using Spectre.Console.Cli;
 using Supervisor;
 
@@ -14,9 +13,6 @@ if (args.Length > 0 && FastPath.Handles(args[0]))
     return await FastPath.RunAsync(args).ConfigureAwait(false);
 }
 
-var registrar = new SimpleTypeRegistrar();
-registrar.RegisterInstance(typeof(IAnsiConsole), AnsiConsole.Console);
-
-var app = new CommandApp(registrar);
+var app = new CommandApp(SupervisorCli.CreateRegistrar());
 app.Configure(SupervisorCli.Configure);
 return app.Run(args);

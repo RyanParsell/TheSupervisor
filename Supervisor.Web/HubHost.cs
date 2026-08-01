@@ -6,7 +6,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Supervisor.Core;
 using Supervisor.Core.Enrollment;
+using Supervisor.Core.Fleet;
 using Supervisor.Core.Hub;
+using Supervisor.Core.Roster;
 
 namespace Supervisor.Web;
 
@@ -39,6 +41,7 @@ public sealed class HubHost : IAsyncDisposable
         HubRendezvousStore store,
         HubLifecycle? lifecycle = null,
         AgentRegistry? registry = null,
+        IFleetQueryService? fleet = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
@@ -54,6 +57,7 @@ public sealed class HubHost : IAsyncDisposable
         builder.Services.AddSingleton(lifecycle);
         var agents = registry ?? new AgentRegistry();
         builder.Services.AddSingleton(agents);
+        builder.Services.AddSingleton(fleet ?? BuildFleetService(agents));
 
         var startedAt = DateTimeOffset.UtcNow;
         var hostId = HubIdentity.NewHostId();
@@ -103,6 +107,15 @@ public sealed class HubHost : IAsyncDisposable
                 StartedAt = startedAt,
             },
             HubApiJsonContext.Default.HubStatus));
+
+        app.MapGet("/hub/fleet", async (IFleetQueryService service, string? cwd, CancellationToken ct) =>
+        {
+            var view = await service
+                .QueryAsync(new FleetQuery { WorkingDirectory = cwd }, ct)
+                .ConfigureAwait(false);
+
+            return Results.Json(view, FleetJsonContext.Default.FleetView);
+        });
 
         app.MapPost("/hub/agents", (AgentRegistration registration, AgentRegistry agents, HubLifecycle live) =>
         {
@@ -188,6 +201,38 @@ public sealed class HubHost : IAsyncDisposable
         store.Write(rendezvous);
 
         return new HubHost(app, store, rendezvous, lifecycle) { Agents = agents };
+    }
+
+    /// <summary>
+    /// The Fleet service a Hub builds for itself when nothing supplies one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately constructed here rather than injected everywhere: this is the composition root
+    /// for the Roster, and the registry it reads from is the same instance enrollment writes to.
+    /// A second registry would make every enrollment test pass while <c>supervisor list</c> stayed
+    /// permanently empty.
+    /// </para>
+    /// <para>
+    /// The probe and locator are parameters so a test can assert that wiring without spawning
+    /// another product's CLI — which is unbounded in latency and absent in CI.
+    /// </para>
+    /// </remarks>
+    public static IFleetQueryService BuildFleetService(
+        AgentRegistry agents, IAgentsCliProbe? probe = null, ITranscriptLocator? locator = null)
+    {
+        ArgumentNullException.ThrowIfNull(agents);
+
+        var machine = MachineIdentityProvider.Resolve();
+        probe ??= new AgentsCliProbe();
+
+        return new RosterFleetQueryService(
+            new RosterAssembler(
+                agents,
+                new UnenrolledBackstop(probe, machine.Id, machine.DisplayName),
+                probe,
+                locator ?? new ClaudeTranscriptLocator(),
+                machine.Id));
     }
 
     public async ValueTask DisposeAsync()

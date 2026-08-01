@@ -33,7 +33,7 @@ public sealed class HubStatusCommand : AsyncCommand<HubStatusSettings>
         {
             if (settings.Json)
             {
-                _console.WriteLine(JsonSerializer.Serialize(new { running = false }));
+                JsonOutput.Write(_console, JsonSerializer.Serialize(new { running = false }));
             }
             else
             {
@@ -55,7 +55,7 @@ public sealed class HubStatusCommand : AsyncCommand<HubStatusSettings>
         {
             // The host secret is never part of any output. It authenticates control of the Hub, so
             // printing it would put it into shell history, scrollback, and any log capturing stdout.
-            _console.WriteLine(JsonSerializer.Serialize(new
+            JsonOutput.Write(_console, JsonSerializer.Serialize(new
             {
                 running = true,
                 hostId = status.HostId,

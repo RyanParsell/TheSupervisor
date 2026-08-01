@@ -69,14 +69,25 @@ public sealed class ActivitySummary
     /// <summary>
     /// Presents <paramref name="text"/> as of <paramref name="activityAt"/>, against the current clock.
     /// </summary>
-    public PresentedActivity Present(string? text, DateTimeOffset activityAt)
+    public PresentedActivity Present(string? text, DateTimeOffset activityAt) =>
+        PresentAsOf(text, activityAt, _time.GetUtcNow());
+
+    /// <summary>
+    /// Presents against an explicit reference instant rather than the clock.
+    /// </summary>
+    /// <remarks>
+    /// A Fleet view is a snapshot taken at a known moment, and ages belong to *that* moment. Using
+    /// the renderer's own clock instead would make the same view age as it is passed around — and,
+    /// once a Peer's rows are in it, would silently mix two Machines' clocks into one column.
+    /// </remarks>
+    public PresentedActivity PresentAsOf(string? text, DateTimeOffset activityAt, DateTimeOffset asOf)
     {
         var line = string.IsNullOrWhiteSpace(text) ? NothingYet : text.Trim();
 
         // Clamped, because two Machines' clocks do not agree. A Peer running a few minutes ahead
         // would otherwise hand us a negative age — rendering as "-3m" and sorting above everything
         // — for an Agent that is behaving perfectly.
-        var elapsed = _time.GetUtcNow() - activityAt;
+        var elapsed = asOf - activityAt;
         var age = elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed;
 
         return new PresentedActivity(line, age, age >= StaleAfter, Label(age));

@@ -1,6 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace Supervisor.Core.Roster;
 
 /// <summary>Coarse lifecycle state of an Agent.</summary>
+/// <remarks>
+/// Serialized by name, not ordinal: <c>--json</c> is a scripting contract, and reordering this enum
+/// would silently relabel every row in every consumer without failing anything.
+/// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter<AgentStatus>))]
 public enum AgentStatus
 {
     /// <summary>Working.</summary>
@@ -23,6 +30,7 @@ public enum AgentStatus
 }
 
 /// <summary>Whether an Agent can be steered.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AgentTier>))]
 public enum AgentTier
 {
     /// <summary>Launched by TheSupervisor into a Hub-owned pseudoterminal. Fully controllable.</summary>
