@@ -320,12 +320,12 @@ without reading the commit log. Branch `feature/enrollment-and-roster`; PR
 | WU-A — scaffold and CI | ✅ complete | `3b46f0e` |
 | WU-B — Hub host, rendezvous, start-or-attach | ✅ complete | `f1c854e`, `2430472`, `4ecd3ef`, `97079f1` |
 | WU-C — MCP shim and the austere fast path | ✅ complete | `8f70b93`, `37416a5`, `443fe1c`, `2312549`, `eff10db` |
-| WU-D — hooks, install, uninstall, doctor | ⬜ **next** | — |
+| WU-D — hooks, install, uninstall, doctor | ✅ complete | `d689fc1` |
 | WU-E — Roster, transcript tail, backstop | ✅ complete | `20f6a9d`, `cda1fa0` |
 | WU-F — control service, `supervisor list`, MCP tool | ✅ complete | `abf95c6`, `e710e05` |
-| WU-G — seeded-fleet demo and hermetic e2e | ⬜ not started | — |
+| WU-G — seeded-fleet demo and hermetic e2e | ⬜ **next — last unit in the plan** | — |
 
-**168 tests, 0 failures, green in Debug and Release.** Startup budget at commit `abf95c6`:
+**211 tests, 0 failures, green in Debug and Release.** Startup budget at commit `abf95c6`:
 `mcp` ratio **0.52** against a 0.75 budget, `hook` 0.44. The test emits these numbers, so the plan's
 verification item 3 is answerable without hand-timing anything. Absolute milliseconds move with
 machine load (141 ms idle, 228 ms under a full build) — the ratio is the stable figure, which is why
@@ -418,6 +418,36 @@ And one found by testing, which had been shipping since WU-B: **`IAnsiConsole.Wr
 whatever is consuming the payload, and redirecting output does not escape it — Spectre assumes a
 width when stdout is not a terminal. `hub status --json` had the same defect and is fixed too.
 
+### What WU-D shipped, and the decisions inside it
+
+**The settings edit is textual, not a serializer round trip.** Reformatting a hand-maintained file
+is semantically identical and still destroys it — the next diff shows every line changed and the
+developer's own formatting is gone. `SettingsFile` splices one span and leaves every other byte
+alone. The one unavoidable change is a trailing comma on what used to be the last property, which
+JSON requires; that it is the *only* change is what the byte-identical uninstall test pins.
+
+**Two files, two strategies.** Hooks go into `~/.claude/settings.json` surgically, with a timestamped
+backup taken from disk before the first write. MCP registration goes through `claude mcp add -s user`
+rather than editing `~/.claude.json`, which holds Claude Code's own state — projects, history,
+caches — and is far more expensive to corrupt than a hook entry.
+
+**Doctor is the counterweight to fail-open.** A broken shim exits 0 in silence (D19), so a session
+starting normally is *no evidence* that enrollment happened. Every problem carries a remedy: a report
+that says something is wrong without saying what to do leaves the developer where they started. A
+Hub that is not running is a **note**, not a problem — it starts with the first session of the day,
+and flagging that red every morning would train the eye past red.
+
+**The hook path has no race.** ADR-0007 exists because the MCP shim is spawned ~3.5 s before Claude
+Code writes the session file, so it polls for its own identity. The hook payload *carries*
+`session_id` and `cwd`, so there is nothing to wait for. It cannot carry Claude Code's derived name,
+though, and L6 forbids minting one — so the Roster now takes the name from `claude agents --json`,
+which is the authority, falling back to whatever enrolled.
+
+**`--settings` exists because of a real trap.** `Environment.SpecialFolder.UserProfile` asks Windows
+for the known folder and **ignores `%USERPROFILE%`**. Redirecting that variable to sandbox a run
+silently operates on the developer's real file — caught here by noticing `doctor` reporting the real
+path from inside what was supposed to be a sandbox.
+
 ### Loose ends — noticed, not yet acted on
 
 - **`waiting` is reported after all — the earlier claim here was wrong.** This entry previously read
@@ -446,11 +476,21 @@ width when stdout is not a terminal. `hub status --json` had the same defect and
 - **CI runs twice per push** (`push: feature/**` and `pull_request: main`). Wasteful, not broken.
 - **`TreatWarningsAsErrors` vs deliberately-incomplete TDD.** CS0649 turns a behavioural red into a
   build failure. Workaround: initialise explicitly.
-- **Three of five named developer smokes are now performed.** Real enrollment (5/5 sessions clean),
-  unenrolled visibility (5 real sessions listed, correctly labelled, `--cwd` filtering correctly),
-  and `--json` surviving redirection. Still outstanding: the four-session **blocked-Agent ordering**
-  check — which now needs only a session sitting at a prompt, not new machinery — and **uninstall**,
-  blocked on WU-D.
+- **Four of five named developer smokes are now performed.** Real enrollment (5/5 sessions clean);
+  unenrolled visibility (5 real sessions listed, correctly labelled, `--cwd` filtering correctly);
+  `--json` surviving redirection; and **uninstall** — install and uninstall run against a copy of the
+  real 1178-byte `settings.json`, restored byte-identically, with `claude mcp list` showing
+  `thesupervisor … ✔ Connected` in between, which also proves the MCP shim works as a server.
+  Outstanding: the four-session **blocked-Agent ordering** check, which needs only a session sitting
+  at a prompt.
+- **`--settings` redirects the settings file but not the MCP registration.** The smoke above ran a
+  real `claude mcp add` against the developer's machine (removed again by the matching uninstall).
+  Either give the registrar a dry/no-op mode, or say plainly in `--settings`' help that it isolates
+  half the command.
+- **`doctor` never checks that the registered path still exists.** The commonest broken state in
+  development is a registration pointing at a `bin/Debug` binary that has been rebuilt away or
+  deleted — exactly the orphan this unit exists to prevent, and the one thing doctor does not look
+  for.
 - **`gh` active account reverts** to `ryanp_microsoft`, which cannot touch personal repos. Use
   `$env:GH_TOKEN = (gh auth token --user RyanParsell)` per invocation rather than `gh auth switch`.
 
