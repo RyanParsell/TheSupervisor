@@ -309,6 +309,115 @@ plan. Both go through `FakeClock`. **No test sleeps** — a test that waits is a
 - **`supervisor install` mutates a hand-maintained file.** Backup before write, marked block, and an
   uninstall test asserting byte-identical restore.
 
+## Resuming this plan
+
+**Read this first.** Everything below is either hard-won or expensive to rediscover. The Progress
+section that follows says *what* was built; this says what you need in hand before touching it.
+
+### State
+
+Branch `feature/enrollment-and-roster`, clean and pushed through `9f2ecf3`. PR
+[#1](https://github.com/RyanParsell/TheSupervisor/pull/1) open against `main`. **211 tests, 0
+failures, Debug and Release.** Six of seven work units complete; **WU-G** (seeded-fleet demo +
+hermetic e2e) is all that remains.
+
+### Do this before WU-G
+
+**Run post-impl.** It has not run since the WU-A/B/C checkpoint, and four work units have shipped
+since. `docs/sdd/` has no entry for the Roster, the Fleet service, any CLI verb, or WU-D — so a fresh
+`pre-impl` grounding itself in the SDD would plan against a system four units out of date. That is
+the failure the SDD exists to prevent, and it is currently live.
+
+When it runs, **migrate the contract table below into `docs/sdd/thesupervisor-architecture.md`.** It
+is durable knowledge about another product, not plan-specific detail, and it will be archived out of
+sight when this plan moves to `docs/artifacts/`.
+
+### Verified contracts — Claude Code internals
+
+Every one of these was read out of the shipping binary or captured from a live machine. **Do not
+re-derive them by inference from a sample** (see the `waiting` entry in Loose ends for what that
+costs).
+
+| Thing | Shape | Where |
+|---|---|---|
+| Session file | `{pid, sessionId, cwd, startedAt (epoch ms), version, kind, entrypoint, name, nameSource, status, updatedAt, statusUpdatedAt}` | `~/.claude/sessions/<pid>.json` |
+| Status vocabulary | `["busy","shell","idle","waiting"]` — collapsed to `idle\|waiting\|busy` on the way into JSON by `yOm` | session file / `agents --json` |
+| `claude agents --json` | array of `{pid, cwd, kind, startedAt, sessionId, name, status}`, plus **`waitingFor`** only when `status=="waiting"` | supported contract |
+| `waitingFor` values | `"sandbox request"`, `"input needed"`, `"dialog open"`, `"worker request"`, or a dialog's own label | from `yxS` |
+| Transcript | `~/.claude/projects/<slug>/<sessionId>.jsonl`; slug replaces `:` `\` `/` with `-`, so `C:\Code\Personal\TheSupervisor` → `C--Code-Personal-TheSupervisor` | verified against the real directory |
+| Hook stdin | `{session_id, transcript_path, cwd, prompt_id, permission_mode, agent_id, agent_type, effort, hook_event_name}` — **snake_case** | common payload builder `Kf` |
+| Hook events | `PreToolUse, PostToolUse, Notification, UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStart, SubagentStop, PreCompact, PermissionRequest, PermissionDenied, TeammateIdle, …` | event list in the binary |
+| Hooks in settings | `hooks.<Event>[] = {matcher?, hooks: [{type:"command", command}]}` | `~/.claude/settings.json` |
+| User-scope MCP | `claude mcp add -s user <name> -- <exe> mcp` / `claude mcp remove -s user <name>`; stored in `~/.claude.json` under `mcpServers` | `claude mcp --help` |
+
+### How to read Claude Code's internals
+
+`claude.exe` is a ~265 MB single-file native binary with the **JavaScript source embedded as plain
+text**. There is no JS bundle on disk to grep, and `rg` is not on PATH — but a chunked read with
+Latin1 decoding finds anything:
+
+```powershell
+$path = "C:\Users\ryanp\.claude-cli\currentVersion\claude.exe"
+$fs = [System.IO.File]::OpenRead($path)
+$chunk = 8MB; $buf = New-Object byte[] $chunk; $overlap = 8192; $carry = ""
+$hits = New-Object System.Collections.Generic.List[string]
+while (($read = $fs.Read($buf, 0, $chunk)) -gt 0) {
+  $text = $carry + [System.Text.Encoding]::Latin1.GetString($buf, 0, $read)
+  foreach ($m in [regex]::Matches($text, 'YOUR PATTERN HERE.{0,300}')) { $hits.Add($m.Value) }
+  if ($text.Length -gt $overlap) { $carry = $text.Substring($text.Length - $overlap) } else { $carry = $text }
+}
+$fs.Close()
+$hits | Select-Object -Unique | Select-Object -First 8
+```
+
+The overlap matters — a match straddling a chunk boundary is otherwise lost. Search for a distinctive
+literal (`statusUpdatedAt`, `hook_event_name`, `"busy"`) and widen the trailing `.{0,N}` to read the
+surrounding function. Minified identifiers are stable enough within a version to follow (`yxS`, `Kf`,
+`yOm`, `wDy` above). Takes 1–3 minutes per query.
+
+This settled two questions that inference had got **wrong**. Reach for it before concluding anything
+about Claude Code's behaviour from observation alone.
+
+### Build, test, smoke
+
+```powershell
+# Always gate test on build — a green --no-build run over a FAILED build reads as success (F-5).
+dotnet build TheSupervisor.slnx --verbosity quiet --nologo
+if ($LASTEXITCODE -ne 0) { exit 1 }
+dotnet test TheSupervisor.slnx --no-build --verbosity quiet
+
+# The startup budget is enforced only in Release, and only prints its numbers with a detailed logger.
+dotnet test TheSupervisor.slnx -c Release --no-build `
+  --filter "FullyQualifiedName~StartupBudget" --logger "console;verbosity=detailed"
+
+# Stand up a Hub and look at the real fleet. STOP IT BEFORE THE NEXT BUILD — a running Hub holds
+# Supervisor.Web.dll and the build dies with MSB3021.
+$exe = "C:\Code\Personal\TheSupervisor\Supervisor\bin\Debug\net10.0\supervisor.exe"
+Start-Process -FilePath $exe -ArgumentList "hub","serve" -WindowStyle Hidden
+& $exe list ; & $exe hub stop
+```
+
+**To exercise install safely**, point it at a *copy* of the real settings file:
+`& $exe install --settings <copy>` … `& $exe uninstall --settings <copy>`, then compare bytes.
+Note the caveat in Loose ends: `--settings` isolates the file but **not** the MCP registration, which
+still runs `claude mcp add` against the real machine.
+
+### Traps that have already cost time
+
+- **`%USERPROFILE%` does not sandbox anything.** `Environment.SpecialFolder.UserProfile` asks Windows
+  for the known folder and ignores the variable, so a "sandboxed" run reads the real file. Use
+  `--settings`.
+- **`IAnsiConsole.WriteLine` word-wraps JSON** into unparseable output at the profile width, and
+  redirection does not escape it. Machine-readable output goes through `JsonOutput.Write`.
+- **Raw strings and JSON do not mix.** A Windows path interpolated into a raw-string JSON literal is
+  an invalid escape (`\C`); serialize each value instead. Cost a red herring twice.
+- **A test that passes against a do-nothing stub is vacuous.** Write the stub, look at *which* tests
+  pass, and strengthen those before implementing (friction F-8).
+- **Startup budget:** absolute milliseconds swing with machine load (141 ms idle → 292 ms under a
+  build). The **ratio** is the stable figure and the reason the guard is written as one.
+
+---
+
 ## Progress
 
 **Updated 2026-08-01.** Maintained as the plan is worked, so a fresh context window can resume
