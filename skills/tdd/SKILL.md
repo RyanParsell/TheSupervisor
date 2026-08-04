@@ -125,9 +125,9 @@ Rules:
 ```
 per behavior:
   loop (max ~10 cycles):
-    BUILD:  dotnet build TheSupervisor.sln --no-restore --verbosity quiet
+    BUILD:  dotnet build TheSupervisor.slnx --no-restore --verbosity quiet
             build fails → fix SOURCE (not the test), next cycle
-    TEST:   dotnet test TheSupervisor.sln --verbosity normal --filter "FullyQualifiedName~{TestClassName}"
+    TEST:   dotnet test TheSupervisor.slnx --verbosity normal --filter "FullyQualifiedName~{TestClassName}"
             pass → behavior done, go to next behavior
             fail → read expected-vs-actual, fix IMPLEMENTATION (not the test), next cycle
     stuck on the same failure 3 cycles, or hit the cap → surface to the human
@@ -172,6 +172,6 @@ Report:
 **Guards applied**: {which always-on rules and known-issue guards were relevant}
 ```
 
-**Confirm no regressions** — run the full suite once (unfiltered): `dotnet test TheSupervisor.sln --verbosity quiet`. Report any pre-existing test that broke.
+**Confirm no regressions** — run the full suite once (unfiltered): `dotnet test TheSupervisor.slnx --verbosity quiet`. Report any pre-existing test that broke.
 
 **CLI-change checklist.** If a command/subcommand/arg/flag was added, removed, renamed, or changed, remind the user to update: `Supervisor/Program.cs`, the relevant `*Settings.cs`, `README.md`, `Supervisor/Commands/AgentGuideCommand.cs`, and `CLAUDE.md`. The post-impl skill re-checks these, but catching it here is cheaper.

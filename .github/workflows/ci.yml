@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**", "bug/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  build-and-test:
+    # Windows because the terminal (WU-3) is ConPTY-bound and the Hub's rendezvous uses
+    # Windows ACLs. Running CI anywhere else would prove less than it appears to.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore TheSupervisor.slnx
+
+      - name: Build
+        run: dotnet build TheSupervisor.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test TheSupervisor.slnx --no-build --configuration Release --verbosity normal
+
+      # The startup budget (NFR-2) guards the per-session fast path: the mcp and hook verbs run
+      # on every Claude session and every lifecycle event, so a dependency creeping onto that path
+      # is a tax the developer pays all day. It is called out separately here so a failure reads as
+      # "the fast path regressed", not as one more test among many.
+      #
+      # If this step fails, move the dependency off the fast path. Raising the budget is a
+      # plan-level decision, never an implementation one.
+      - name: Startup budget guard
+        run: dotnet test TheSupervisor.slnx --no-build --configuration Release --filter "FullyQualifiedName~StartupBudget" --verbosity normal

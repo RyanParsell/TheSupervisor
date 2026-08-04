@@ -162,7 +162,7 @@ For frontend components:
 4. **Accessibility** — ARIA attributes, keyboard navigation
 
 **2c. Run an autonomous build-test-fix loop** (max 10 cycles) per work unit:
-- .NET: `dotnet build TheSupervisor.sln --no-restore --verbosity quiet && dotnet test TheSupervisor.sln --verbosity quiet`
+- .NET: `dotnet build TheSupervisor.slnx --no-restore --verbosity quiet && dotnet test TheSupervisor.slnx --verbosity quiet`
 - WebUI: `npm --prefix WebUI test` — and a filtered/single-file run uses the **same form**: `npm --prefix WebUI test -- <files>`. This runs the package's own `test` script with **cwd = the package dir**, so vitest picks up WebUI's config (`jsdom`, project root). Do **not** substitute `npm --prefix WebUI exec -- vitest run`: it looks equivalent but keeps cwd at the **repo root**, so vitest loads none of WebUI's config and runs in the `node` environment — every test then fails `ReferenceError: document is not defined`, *including ones that just passed*, which reads like your change broke them. **The tell:** vitest's `RUN v… <path>` banner must print the `WebUI` path; if it prints the repo root, the invocation is wrong, not the code.
 
 Then: build first, fix compiler/type errors; test (filtered to the new test class/file), fix implementation (NOT tests); report final pass/fail count.
@@ -230,8 +230,8 @@ git ls-files --others --exclude-standard  # untracked new files
 
 **4c.** Build and run the full test suite:
 ```
-dotnet build TheSupervisor.sln --no-restore --verbosity quiet
-dotnet test TheSupervisor.sln --verbosity quiet
+dotnet build TheSupervisor.slnx --no-restore --verbosity quiet
+dotnet test TheSupervisor.slnx --verbosity quiet
 ```
 
 **4d.** If build or tests fail, fix issues. Common problems:
