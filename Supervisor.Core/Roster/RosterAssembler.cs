@@ -191,7 +191,11 @@ public sealed class RosterAssembler
             rows.Add(new RosterEntry
             {
                 AgentId = agent.AgentId,
-                DisplayName = registration.DisplayName,
+
+                // L6: Claude Code's derived name, never one we mint. The probe is the authority —
+                // the hook enrollment path cannot supply a name at all, since the payload does not
+                // carry one, so without this a hook-enrolled Agent would have a blank column.
+                DisplayName = FirstNonEmpty(seen?.DisplayName, registration.DisplayName, registration.SessionId),
                 RepositoryId = registration.RepositoryId,
                 WorkingDirectory = registration.WorkingDirectory,
                 MachineId = registration.MachineId,
@@ -213,6 +217,10 @@ public sealed class RosterAssembler
 
         return RosterOrdering.Order(rows);
     }
+
+    /// <summary>First value that is actually present. Never returns null or blank.</summary>
+    private static string FirstNonEmpty(params string?[] candidates) =>
+        Array.Find(candidates, c => !string.IsNullOrWhiteSpace(c)) ?? "(unnamed)";
 
     /// <summary>
     /// Decides an Agent's Status from what the probe saw.

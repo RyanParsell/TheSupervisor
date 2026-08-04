@@ -42,6 +42,19 @@ public static class SupervisorCli
             .WithExample("list", "--json")
             .WithExample("list", "--cwd", @"C:\Code\Personal");
 
+        config.AddCommand<InstallCommand>("install")
+            .WithDescription("Register TheSupervisor with Claude Code. Safe to re-run.")
+            .WithExample("install")
+            .WithExample("install", "--dry-run");
+
+        config.AddCommand<UninstallCommand>("uninstall")
+            .WithDescription("Remove TheSupervisor from Claude Code, leaving settings.json as it was.")
+            .WithExample("uninstall");
+
+        config.AddCommand<DoctorCommand>("doctor")
+            .WithDescription("Report whether enrollment is actually working — fail-open hides this.")
+            .WithExample("doctor");
+
         config.AddBranch("hub", hub =>
         {
             hub.SetDescription("Inspect and control the Hub for this machine.");

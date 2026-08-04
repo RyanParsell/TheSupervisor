@@ -35,7 +35,7 @@ internal static class FastPath
         return args[0] switch
         {
             "mcp" => McpShim.RunAsync(probeOnly),
-            "hook" => Task.FromResult(0),
+            "hook" => HookShim.RunAsync(args, probeOnly),
             _ => Task.FromResult(1),
         };
     }

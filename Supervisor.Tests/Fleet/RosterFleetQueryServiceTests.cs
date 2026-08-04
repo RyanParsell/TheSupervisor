@@ -42,11 +42,13 @@ public sealed class RosterFleetQueryServiceTests : IDisposable
             ProtocolVersion = 1,
         });
 
-    private static ClaudeAgentSighting Sighting(string sessionId, int pid, string status) => new()
+    // The name matches the registration's on purpose: both come from Claude Code, so a sighting
+    // naming an Agent differently from its own enrollment is not a state that can occur.
+    private static ClaudeAgentSighting Sighting(string sessionId, int pid, string status, string name) => new()
     {
         SessionId = sessionId,
         ProcessId = pid,
-        DisplayName = "seen",
+        DisplayName = name,
         WorkingDirectory = @"C:\Code",
         Kind = "interactive",
         ReportedStatus = status,
@@ -74,8 +76,8 @@ public sealed class RosterFleetQueryServiceTests : IDisposable
         Register("s-waiting", 1002, "waiting-agent", @"C:\Code\Personal\TheSupervisor");
 
         var view = await Build(
-                Sighting("s-busy", 1001, "busy"),
-                Sighting("s-waiting", 1002, "waiting"))
+                Sighting("s-busy", 1001, "busy", "busy-agent"),
+                Sighting("s-waiting", 1002, "waiting", "waiting-agent"))
             .QueryAsync(new FleetQuery(), CancellationToken.None);
 
         Assert.Equal(["waiting-agent", "busy-agent"], view.Agents.Select(a => a.DisplayName));
@@ -90,9 +92,9 @@ public sealed class RosterFleetQueryServiceTests : IDisposable
         Register("s-elsewhere", 1003, "elsewhere", @"C:\Code\Other");
 
         var view = await Build(
-                Sighting("s-here", 1001, "idle"),
-                Sighting("s-nested", 1002, "idle"),
-                Sighting("s-elsewhere", 1003, "idle"))
+                Sighting("s-here", 1001, "idle", "here"),
+                Sighting("s-nested", 1002, "idle", "nested"),
+                Sighting("s-elsewhere", 1003, "idle", "elsewhere"))
             .QueryAsync(
                 new FleetQuery { WorkingDirectory = @"C:\Code\Personal\TheSupervisor" },
                 CancellationToken.None);

@@ -153,8 +153,8 @@ public sealed class RosterAssemblerTests : IDisposable
         Transcript("s-idle", UserText("work"));
 
         var rows = await Build(new FakeAgentsCliProbe(
-                Sighting("s-busy", 1001, "busy"),
-                Sighting("s-idle", 1002, "idle")))
+                Sighting("s-busy", 1001, "busy", "busy-agent"),
+                Sighting("s-idle", 1002, "idle", "idle-agent")))
             .BuildAsync(CancellationToken.None);
 
         Assert.Equal(AgentStatus.Busy, rows.Single(r => r.DisplayName == "busy-agent").Status);
@@ -321,6 +321,21 @@ public sealed class RosterAssemblerTests : IDisposable
             .BuildAsync(CancellationToken.None);
 
         Assert.Equal(AgentStatus.Busy, rows[0].Status);
+    }
+
+    [Fact]
+    public async Task ClaudeCodesOwnNameWinsOverWhateverWasEnrolled()
+    {
+        // L6: we never mint an Agent's name. The hook path cannot supply one — the payload does not
+        // carry it — so it enrols with an empty name and the probe, which is the authority, fills it
+        // in. A blank Agent column would make a hook-enrolled session unidentifiable.
+        _registry.Register(Registration("s-1", 1001, name: ""));
+        Transcript("s-1", UserText("go"));
+
+        var rows = await Build(new FakeAgentsCliProbe(Sighting("s-1", 1001, "busy", "thesupervisor-3b")))
+            .BuildAsync(CancellationToken.None);
+
+        Assert.Equal("thesupervisor-3b", rows[0].DisplayName);
     }
 
     [Fact]
